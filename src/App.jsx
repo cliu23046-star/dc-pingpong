@@ -17,9 +17,9 @@ const ResultModal = ({ modal, onClose }) => {
   </div>;
 };
 
-// ======= COACH PAGE (multi-select 0.5h) =======
+// ======= COACH PAGE =======
 const CoachPage = () => {
-  const { coaches, courseCards, bookCoachCoin, bookCoachCard, DAYS, HOURS, slotEnd, slotsRange, slotsDuration } = useStore();
+  const { coaches, courseCards, bookCoachCoin, bookCoachCard, HOURS, DEFAULT_COACH_HOURS, slotEnd, slotsRange, slotsDuration, getNext7Days, getSlotOccupancy, totalTables, isCoachSlotBooked, isSlotPastCutoff } = useStore();
   const [selectedCoach, setSelectedCoach] = useState(null);
   const [selectedDay, setSelectedDay] = useState(null);
   const [selectedSlots, setSelectedSlots] = useState([]);
@@ -29,15 +29,33 @@ const CoachPage = () => {
   const [error, setError] = useState(null);
   const activeCoaches = coaches.filter(c => c.status === "在职");
   const usableCards = courseCards.filter(c => c.remaining > 0);
-  const coachSlots = useMemo(() => selectedCoach?.availableSlots || [], [selectedCoach]);
-  const daySlots = useMemo(() => { const ds = coachSlots.find(s => s.day === selectedDay); return ds ? [...ds.hours].sort((a, b) => HOURS.indexOf(a) - HOURS.indexOf(b)) : []; }, [coachSlots, selectedDay, HOURS]);
+
+  // All 7 days (no weekday filtering — coaches are available every day by default)
+  const allDays = useMemo(() => getNext7Days(), []);
+
+  // Available hours for selected day: DEFAULT_COACH_HOURS minus closedSlots for that date
+  const daySlots = useMemo(() => {
+    if (!selectedDay || !selectedCoach) return [];
+    const dateKey = selectedDay.dateKey;
+    const closedSet = new Set((selectedCoach.closedSlots || []).filter(s => s.dateKey === dateKey).map(s => s.hour));
+    return DEFAULT_COACH_HOURS.filter(h => !closedSet.has(h));
+  }, [selectedCoach, selectedDay, DEFAULT_COACH_HOURS]);
+
+  const dateKey = selectedDay?.dateKey;
 
   const toggleSlot = (h) => {
     setError(null);
+    // Check table availability
+    const occ = getSlotOccupancy(dateKey, h);
+    if (occ.full) { setError("该时段球台已满，无法预约"); return; }
+    // Check 16h cutoff
+    if (isSlotPastCutoff(dateKey, h)) { setError("该时段已截止预约（距当前不足16小时）"); return; }
+    // Check coach booked
+    if (isCoachSlotBooked(selectedCoach.id, dateKey, h)) { setError("该时段已被其他用户预约"); return; }
+
     setSelectedSlots(prev => {
       if (prev.includes(h)) { return prev.filter(x => x !== h); }
       const next = [...prev, h].sort((a, b) => HOURS.indexOf(a) - HOURS.indexOf(b));
-      // Check contiguous
       for (let i = 1; i < next.length; i++) { if (HOURS.indexOf(next[i]) !== HOURS.indexOf(next[i - 1]) + 1) { setError("请选择连续的时段"); return prev; } }
       return next;
     });
@@ -50,8 +68,8 @@ const CoachPage = () => {
 
   const doBook = () => {
     if (duration < 1) { setError("最低预约1小时（请至少选2个连续时段）"); return; }
-    if (payMethod === "coin") bookCoachCoin(selectedCoach, selectedSlots, selectedDay);
-    else bookCoachCard(selectedCoach, selectedSlots, selectedDay, payCardId);
+    if (payMethod === "coin") bookCoachCoin(selectedCoach, selectedSlots, dateKey);
+    else bookCoachCard(selectedCoach, selectedSlots, dateKey, payCardId);
     setShowConfirm(false); setSelectedSlots([]);
   };
 
@@ -69,12 +87,25 @@ const CoachPage = () => {
       </div>
       <div style={{ fontWeight: 700, fontSize: 15, color: COLORS.text, marginBottom: 8 }}>📅 选择日期</div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-        {DAYS.map(d => { const has = coachSlots.some(s => s.day === d); return <button key={d} disabled={!has} onClick={() => { setSelectedDay(d); setSelectedSlots([]); setError(null); }} style={{ padding: "8px 16px", borderRadius: 10, border: "none", fontWeight: 600, fontSize: 13, cursor: has ? "pointer" : "not-allowed", background: selectedDay === d ? COLORS.gradient : has ? "#E8E5F0" : "#f0f0f0", color: selectedDay === d ? "#fff" : has ? COLORS.text : "#ccc" }}>{d}</button>; })}
+        {allDays.map(d => <button key={d.dateKey} onClick={() => { setSelectedDay(d); setSelectedSlots([]); setError(null); }} style={{ padding: "8px 16px", borderRadius: 10, border: "none", fontWeight: 600, fontSize: 13, cursor: "pointer", background: selectedDay?.dateKey === d.dateKey ? COLORS.gradient : "#E8E5F0", color: selectedDay?.dateKey === d.dateKey ? "#fff" : COLORS.text }}>{d.label}</button>)}
       </div>
       {selectedDay && <>
         <div style={{ fontWeight: 700, fontSize: 15, color: COLORS.text, marginBottom: 4 }}>⏰ 选择时段 <span style={{ fontSize: 12, fontWeight: 400, color: COLORS.textLight }}>（0.5h/格，可多选连续时段，最低1小时）</span></div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-          {daySlots.map(h => { const sel = selectedSlots.includes(h); return <button key={h} onClick={() => toggleSlot(h)} style={{ padding: "8px 14px", borderRadius: 10, border: sel ? `2px solid ${COLORS.secondary}` : "2px solid transparent", fontWeight: 600, fontSize: 13, cursor: "pointer", background: sel ? COLORS.gradientPink : "#FCE4EC", color: sel ? "#fff" : COLORS.secondary, transition: "all .15s" }}>{h}-{slotEnd(h)}</button>; })}
+          {daySlots.map(h => {
+            const sel = selectedSlots.includes(h);
+            const cutoff = isSlotPastCutoff(dateKey, h);
+            const booked = isCoachSlotBooked(selectedCoach.id, dateKey, h);
+            const occ = getSlotOccupancy(dateKey, h);
+            const disabled = cutoff || booked || occ.full;
+            const label = cutoff ? "已截止" : booked ? "已约" : occ.full ? "台满" : `剩${occ.available}台`;
+            const btnBg = disabled ? "#eee" : sel ? COLORS.gradientPink : "#FCE4EC";
+            const btnColor = cutoff ? "#bbb" : booked ? COLORS.warning : occ.full ? COLORS.danger : sel ? "#fff" : COLORS.secondary;
+            return <button key={h} onClick={() => !disabled && toggleSlot(h)} disabled={disabled} style={{ padding: "8px 14px", borderRadius: 10, border: sel ? `2px solid ${COLORS.secondary}` : "2px solid transparent", fontWeight: 600, fontSize: 13, cursor: disabled ? "not-allowed" : "pointer", background: btnBg, color: btnColor, transition: "all .15s", position: "relative", opacity: disabled ? 0.7 : 1 }}>
+              {h}-{slotEnd(h)}
+              <div style={{ fontSize: 9, color: cutoff ? "#bbb" : booked ? COLORS.warning : COLORS.textLight, marginTop: 2 }}>{label}</div>
+            </button>;
+          })}
         </div>
         {error && <div style={{ color: COLORS.danger, fontSize: 13, fontWeight: 600, marginBottom: 8 }}>⚠️ {error}</div>}
         {selectedSlots.length > 0 && <div style={{ background: COLORS.primary + "08", borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 13 }}>
@@ -97,7 +128,7 @@ const CoachPage = () => {
     {showConfirm && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowConfirm(false)}>
       <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 24, width: 340 }}>
         <h3 style={{ margin: "0 0 16px", color: COLORS.text }}>确认预约</h3>
-        <div style={{ lineHeight: 2, fontSize: 14, color: COLORS.text }}>教练：<b>{selectedCoach.name}</b><br />日期：<b>{selectedDay}</b><br />时段：<b>{range}</b><br />时长：<b>{duration} 小时</b><br />支付：<b>{payMethod === "coin" ? `${cost} Coin` : `课程卡 ${usableCards.find(c => c.id === payCardId)?.name}，扣 ${cardDeduct} 次`}</b></div>
+        <div style={{ lineHeight: 2, fontSize: 14, color: COLORS.text }}>教练：<b>{selectedCoach.name}</b><br />日期：<b>{selectedDay?.label}</b><br />时段：<b>{range}</b><br />时长：<b>{duration} 小时</b><br />支付：<b>{payMethod === "coin" ? `${cost} Coin` : `课程卡 ${usableCards.find(c => c.id === payCardId)?.name}，扣 ${cardDeduct} 次`}</b></div>
         <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button onClick={() => setShowConfirm(false)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1.5px solid ${COLORS.primary}`, background: "#fff", color: COLORS.primary, fontWeight: 600, cursor: "pointer" }}>取消</button><button onClick={doBook} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.gradient, color: "#fff", fontWeight: 600, cursor: "pointer" }}>确认</button></div>
       </div>
     </div>}
@@ -108,12 +139,11 @@ const CoachPage = () => {
       {activeCoaches.map(c => <div key={c.id} onClick={() => setSelectedCoach(c)} style={{ background: COLORS.card, borderRadius: 14, padding: 16, display: "flex", gap: 14, alignItems: "center", cursor: "pointer", boxShadow: "0 2px 10px rgba(59,45,139,0.06)" }}>
         <div style={{ width: 52, height: 52, borderRadius: "50%", background: c.avatar ? `url(${c.avatar}) center/cover` : "#D1D5DB", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0, overflow: "hidden" }}>{!c.avatar && "🏓"}</div>
         <div style={{ flex: 1 }}><div style={{ fontWeight: 700, color: COLORS.text, marginBottom: 4 }}>{c.name}</div><Pill color={COLORS.primary}>{c.level}</Pill><div style={{ fontSize: 12, color: COLORS.textLight, marginTop: 4 }}>{c.specialties.join(" · ")}</div></div>
-        <div style={{ textAlign: "right" }}><div style={{ color: COLORS.secondary, fontWeight: 700, fontSize: 16 }}>{c.price} 🪙/h</div><div style={{ fontSize: 11, color: COLORS.textLight }}>{c.availableSlots.length}天可约</div></div>
+        <div style={{ textAlign: "right" }}><div style={{ color: COLORS.secondary, fontWeight: 700, fontSize: 16 }}>{c.price} 🪙/h</div><div style={{ fontSize: 11, color: COLORS.textLight }}>全时段可约</div></div>
       </div>)}
     </div>
   </div>;
 };
-
 // ======= COURSE PAGE =======
 const CoursePage = () => {
   const { courses, buyCourse } = useStore();
@@ -185,7 +215,7 @@ const CommunityPage = () => {
 const ActivityPage = () => {
   const { activities, joinActivity, joinedIds } = useStore();
   const [filter, setFilter] = useState("all");
-  const filtered = activities.filter(a => filter === "all" || (filter === "group" ? a.type === "group" : a.type === "match"));
+  const filtered = activities.filter(a => a.status !== "已取消" && (filter === "all" || (filter === "group" ? a.type === "group" : a.type === "match")));
   const tabs = [{ id: "all", label: "全部" }, { id: "group", label: "团课" }, { id: "match", label: "比赛" }];
 
   return <div style={{ padding: "16px 0" }}><h2 style={{ margin: "0 0 12px", color: COLORS.text, fontSize: 18 }}>🎯 活动</h2>
@@ -199,8 +229,14 @@ const ActivityPage = () => {
                 <Pill color={a.type === "match" ? COLORS.warning : COLORS.success}>{a.type === "match" ? "比赛" : "团课"}</Pill>
                 <Pill color={COLORS.textLight}>📅 {a.date} {a.time}</Pill>
                 <Pill color={COLORS.textLight}>📍 {a.location}</Pill>
+                {a.occupiedTableCount > 0 && <Pill color="#F97316">🏟️ {a.occupiedTableCount}张球台</Pill>}
               </div>
               <div style={{ fontSize: 13, color: COLORS.textLight }}>{a.enrolledUsers.length}/{a.spots} 已报名 · {a.cost} Coin</div>
+              {a.minParticipants > 0 && <div style={{ marginTop: 6 }}>
+                {a.enrolledUsers.length >= a.minParticipants
+                  ? <div style={{ background: COLORS.success + "15", color: COLORS.success, padding: "4px 10px", borderRadius: 8, fontSize: 12, fontWeight: 700, display: "inline-block" }}>✅ 已达开{a.type === "match" ? "赛" : "课"}条件</div>
+                  : <div style={{ fontSize: 12, color: COLORS.warning, fontWeight: 600 }}>📢 最低{a.minParticipants}人{a.type === "match" ? "开赛" : "开课"}，已报名 {a.enrolledUsers.length}/{a.minParticipants}，还差{a.minParticipants - a.enrolledUsers.length}人</div>}
+              </div>}
             </div>
             <button disabled={joined || full} onClick={() => joinActivity(a)} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: joined ? "#ccc" : full ? "#eee" : COLORS.gradient, color: joined || full ? "#999" : "#fff", fontWeight: 600, fontSize: 13, cursor: joined || full ? "default" : "pointer" }}>{joined ? "已报名" : full ? "已满" : "报名"}</button>
           </div>
@@ -215,30 +251,26 @@ const ActivityPage = () => {
   </div>;
 };
 
-// ======= TABLE PAGE (multi-select 0.5h) =======
+// ======= TABLE PAGE (pool-based availability) =======
 const TablePage = () => {
-  const { tables, activities, bookings, bookTable, HOURS, slotEnd, slotsRange, slotsDuration } = useStore();
-  const [selDate, setSelDate] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 1); return `${d.getMonth() + 1}/${d.getDate()}`; });
-  const [selTable, setSelTable] = useState(null);
+  const { tables, bookTable, HOURS, slotEnd, slotsRange, slotsDuration, getSlotOccupancy, getWorkdays, openWeekendDates, totalTables } = useStore();
+  const dates = useMemo(() => getWorkdays(3, openWeekendDates), [openWeekendDates]);
+  const [selDate, setSelDate] = useState(null);
   const [selSlots, setSelSlots] = useState([]);
   const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState(null);
 
-  const dates = useMemo(() => { const ds = []; const now = new Date(); for (let i = 1; i <= 7; i++) { const d = new Date(now); d.setDate(d.getDate() + i); ds.push(`${d.getMonth() + 1}/${d.getDate()}`); } return ds; }, []);
+  // Initialize to first available date
+  const dateKey = selDate || (dates.length > 0 ? dates[0].label : null);
+  const dateKeyShort = dateKey?.split(" ")[0];
 
-  const isOccupied = (tableId, hour) => {
-    const slot = `${hour}-${slotEnd(hour)}`;
-    const t = tables.find(x => x.id === tableId);
-    if (t?.unavailableSlots?.some(s => s.dateKey === selDate && s.hour === slot)) return true;
-    if (activities.some(a => a.tableId === tableId && a.tableSlot && a.tableSlot.includes(hour))) return true;
-    if (bookings.some(b => b.type === "球台预约" && b.detail.includes(t?.name) && b.date === selDate && b.slots?.includes(hour) && b.status !== "已拒绝" && b.status !== "已取消")) return true;
-    return false;
-  };
+  const avgPrice = tables.length > 0 ? Math.round(tables.reduce((s, t) => s + t.pricePerHour, 0) / tables.length) : 15;
 
-  const toggleSlot = (tableId, h) => {
+  const toggleSlot = (h) => {
     setError(null);
-    if (selTable !== null && selTable !== tableId) { setSelTable(tableId); setSelSlots([h]); return; }
-    setSelTable(tableId);
+    const occ = getSlotOccupancy(dateKeyShort, h);
+    if (occ.full) { setError("该时段所有球台已满"); return; }
+
     setSelSlots(prev => {
       if (prev.includes(h)) { return prev.filter(x => x !== h); }
       const next = [...prev, h].sort((a, b) => HOURS.indexOf(a) - HOURS.indexOf(b));
@@ -248,13 +280,12 @@ const TablePage = () => {
   };
 
   const duration = slotsDuration(selSlots);
-  const table = tables.find(t => t.id === selTable);
-  const cost = Math.round((table?.pricePerHour || 15) * duration);
+  const cost = Math.round(avgPrice * duration);
   const range = slotsRange(selSlots);
 
   const doBook = () => {
     if (duration < 1) { setError("最低预约1小时（请至少选2个连续时段）"); return; }
-    bookTable(table, selSlots, selDate);
+    bookTable(selSlots, dateKeyShort);
     setShowConfirm(false); setSelSlots([]);
   };
 
@@ -265,30 +296,46 @@ const TablePage = () => {
 
   return <div style={{ padding: "16px 0" }}><h2 style={{ margin: "0 0 12px", color: COLORS.text, fontSize: 18 }}>🏟️ 租球台</h2>
     <div style={{ display: "flex", gap: 8, overflowX: "auto", marginBottom: 14, paddingBottom: 4 }}>
-      {dates.map(d => <button key={d} onClick={() => { setSelDate(d); setSelSlots([]); setError(null); }} style={{ padding: "6px 14px", borderRadius: 10, border: "none", fontWeight: 600, fontSize: 13, cursor: "pointer", background: selDate === d ? COLORS.gradient : "#E8E5F0", color: selDate === d ? "#fff" : COLORS.text, whiteSpace: "nowrap" }}>{d}</button>)}
+      {dates.map(d => <button key={d.label} onClick={() => { setSelDate(d.label); setSelSlots([]); setError(null); }} style={{ padding: "6px 14px", borderRadius: 10, border: "none", fontWeight: 600, fontSize: 13, cursor: "pointer", background: dateKey === d.label ? COLORS.gradient : d.isWeekend ? "#FFF0E5" : "#E8E5F0", color: dateKey === d.label ? "#fff" : COLORS.text, whiteSpace: "nowrap" }}>{d.label}{d.isWeekend ? " 🌟" : ""}</button>)}
     </div>
-    <div style={{ fontSize: 12, color: COLORS.textLight, marginBottom: 8 }}>点击可用时段多选连续格子，最低预约1小时（2格）</div>
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {tables.filter(t => t.status === "正常").map(t => <div key={t.id} style={{ background: COLORS.card, borderRadius: 12, padding: 14 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-          <div><span style={{ fontWeight: 700, color: COLORS.text }}>{t.name}</span><span style={{ color: COLORS.secondary, fontWeight: 600, marginLeft: 8 }}>{t.pricePerHour} 🪙/时</span></div>
-        </div>
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-          {HOURS.map(h => { const occ = isOccupied(t.id, h); const sel = selTable === t.id && selSlots.includes(h); return <button key={h} disabled={occ} onClick={() => toggleSlot(t.id, h)} style={{ padding: "4px 8px", borderRadius: 6, border: sel ? `2px solid ${COLORS.secondary}` : "2px solid transparent", fontSize: 11, fontWeight: 600, cursor: occ ? "not-allowed" : "pointer", background: occ ? "#eee" : sel ? COLORS.gradientPink : "#E8E5F0", color: occ ? "#ccc" : sel ? "#fff" : COLORS.text, transition: "all .15s" }}>{h}</button>; })}
-        </div>
-        {selTable === t.id && selSlots.length > 0 && <div style={{ marginTop: 8, background: COLORS.primary + "08", borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>
+    <div style={{ fontSize: 12, color: COLORS.textLight, marginBottom: 12 }}>共 {totalTables} 张球台 · {avgPrice} 🪙/时 · 点击可用时段多选连续格子，最低1小时</div>
+
+    {/* Availability grid */}
+    <div style={{ background: COLORS.card, borderRadius: 14, padding: 14, boxShadow: "0 2px 10px rgba(59,45,139,0.06)" }}>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+        {HOURS.map(h => {
+          const occ = getSlotOccupancy(dateKeyShort, h);
+          const sel = selSlots.includes(h);
+          return <button key={h} disabled={occ.full} onClick={() => toggleSlot(h)} style={{
+            padding: "6px 10px", borderRadius: 8,
+            border: sel ? `2px solid ${COLORS.secondary}` : "2px solid transparent",
+            fontSize: 12, fontWeight: 600, cursor: occ.full ? "not-allowed" : "pointer",
+            background: occ.full ? "#eee" : sel ? COLORS.gradientPink : "#E8E5F0",
+            color: occ.full ? "#ccc" : sel ? "#fff" : COLORS.text,
+            transition: "all .15s", textAlign: "center", minWidth: 54,
+          }}>
+            <div>{h}</div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: occ.full ? COLORS.danger : sel ? "#fff" : COLORS.success, marginTop: 2 }}>
+              {occ.full ? "已满" : `剩${occ.available}张`}
+            </div>
+          </button>;
+        })}
+      </div>
+      {selSlots.length > 0 && <div style={{ marginTop: 12, background: COLORS.primary + "08", borderRadius: 8, padding: "10px 14px", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
           <span style={{ fontWeight: 700 }}>已选：</span><span style={{ color: COLORS.secondary, fontWeight: 600 }}>{range}</span>
           <span style={{ color: COLORS.textLight, marginLeft: 8 }}>{duration}h</span>
           <span style={{ color: COLORS.secondary, fontWeight: 700, marginLeft: 8 }}>{cost} 🪙</span>
-          <button onClick={tryConfirm} style={{ float: "right", padding: "4px 16px", background: COLORS.gradient, color: "#fff", border: "none", borderRadius: 6, fontWeight: 600, fontSize: 12, cursor: "pointer" }}>预约</button>
-        </div>}
-      </div>)}
+        </div>
+        <button onClick={tryConfirm} style={{ padding: "6px 20px", background: COLORS.gradient, color: "#fff", border: "none", borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>预约</button>
+      </div>}
     </div>
+
     {error && <div style={{ position: "fixed", bottom: 80, left: "50%", transform: "translateX(-50%)", background: COLORS.danger, color: "#fff", padding: "10px 20px", borderRadius: 10, fontWeight: 600, fontSize: 13, zIndex: 100 }}>⚠️ {error}</div>}
-    {showConfirm && selTable && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowConfirm(false)}>
+    {showConfirm && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowConfirm(false)}>
       <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 24, width: 320 }}>
         <h3 style={{ margin: "0 0 12px", color: COLORS.text }}>确认预约</h3>
-        <p style={{ fontSize: 14, color: COLORS.text }}>球台：<b>{table?.name}</b><br />日期：<b>{selDate}</b><br />时段：<b>{range}</b><br />时长：<b>{duration} 小时</b><br />费用：<b>{cost} Coin</b></p>
+        <p style={{ fontSize: 14, color: COLORS.text }}>日期：<b>{dateKey}</b><br />时段：<b>{range}</b><br />时长：<b>{duration} 小时</b><br />费用：<b>{cost} Coin</b></p>
         <div style={{ display: "flex", gap: 10 }}><button onClick={() => setShowConfirm(false)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1.5px solid ${COLORS.primary}`, background: "#fff", color: COLORS.primary, fontWeight: 600, cursor: "pointer" }}>取消</button><button onClick={doBook} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.gradient, color: "#fff", fontWeight: 600, cursor: "pointer" }}>确认</button></div>
       </div>
     </div>}
@@ -415,6 +462,11 @@ const TABS = [
 export default function App() {
   const [tab, setTab] = useState("coach");
   const store = useStore();
+
+  if (store.loading) return <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100vh", background: COLORS.bg, fontFamily: "-apple-system,sans-serif", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column" }}>
+    <div style={{ background: COLORS.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: 24, fontWeight: 800, marginBottom: 8 }}>DC Pingpong 🏓</div>
+    <div style={{ color: COLORS.textLight, fontSize: 14 }}>⏳ 数据加载中...</div>
+  </div>;
 
   return <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100vh", background: COLORS.bg, fontFamily: "-apple-system,'Segoe UI',sans-serif", display: "flex", flexDirection: "column" }}>
     <div style={{ background: COLORS.gradient, padding: "14px 16px", textAlign: "center" }}>
