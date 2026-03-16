@@ -178,11 +178,12 @@ const CoachMgmt = () => {
 
 // ======= COURSE MANAGEMENT =======
 const CourseMgmt = () => {
-    const { courses, setCourses } = useStore();
+    const { courses, adminSaveCourse, adminDeleteCourse } = useStore();
     const [modal, setModal] = useState(null);
+    const [saving, setSaving] = useState(false);
     const empty = { title: "", desc: "", lessons: 0, price: 0, enrolled: 0, status: "上架", coverImage: null, emoji: "📖", outline: [] };
-    const save = () => { if (modal.id) { setCourses(d => d.map(x => x.id === modal.id ? modal : x)); } else { setCourses(d => [...d, { ...modal, id: Date.now() }]); } setModal(null); };
-    const del = (id) => setCourses(d => d.filter(x => x.id !== id));
+    const save = async () => { setSaving(true); try { await adminSaveCourse(modal); } catch (e) { console.error("[CourseMgmt] save error:", e); } setSaving(false); setModal(null); };
+    const del = async (id) => { await adminDeleteCourse(id); };
 
     return <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
@@ -210,38 +211,92 @@ const CourseMgmt = () => {
             <div style={{ display: "flex", gap: 12 }}><div style={{ flex: 1 }}><Field label="课时数"><input type="number" style={st.input} value={modal?.lessons || ""} onChange={e => setModal(m => ({ ...m, lessons: Number(e.target.value) }))} /></Field></div>
                 <div style={{ flex: 1 }}><Field label="价格"><input type="number" style={st.input} value={modal?.price || ""} onChange={e => setModal(m => ({ ...m, price: Number(e.target.value) }))} /></Field></div></div>
             <Field label="状态"><select style={st.input} value={modal?.status || "上架"} onChange={e => setModal(m => ({ ...m, status: e.target.value }))}><option value="上架">上架</option><option value="下架">下架</option></select></Field>
-            <div style={{ display: "flex", gap: 10, marginTop: 8 }}><PBtn secondary onClick={() => setModal(null)}>取消</PBtn><PBtn onClick={save}>保存</PBtn></div>
+            <div style={{ display: "flex", gap: 10, marginTop: 8 }}><PBtn secondary onClick={() => setModal(null)}>取消</PBtn><PBtn onClick={save} disabled={saving}>{saving ? "保存中..." : "保存"}</PBtn></div>
         </Modal>
     </div>;
 };
 
 // ======= ACTIVITY MANAGEMENT =======
 const ActivityMgmt = () => {
-    const { activities, setActivities, tables, distributeReward } = useStore();
+    const { activities, allUsers, tables, distributeReward, adminSaveActivity, adminDeleteActivity, adminCancelActivity, adminCancelUserEnrollment, adminEnrollForUser } = useStore();
     const [modal, setModal] = useState(null);
     const [rewardModal, setRewardModal] = useState(null);
     const [assignments, setAssignments] = useState({});
-    const empty = { title: "", emoji: "🎯", type: "group", date: "", time: "", location: "", spots: 0, cost: 0, rewards: [], enrolledUsers: [], rewardDistributed: false, tableId: null, tableSlot: null, status: "未开始" };
-    const save = () => { const item = { ...modal, rewards: modal._rewards || modal.rewards }; delete item._rewards; if (item.id) { setActivities(d => d.map(x => x.id === item.id ? item : x)); } else { setActivities(d => [...d, { ...item, id: Date.now() }]); } setModal(null); };
-    const del = (id) => setActivities(d => d.filter(x => x.id !== id));
+    const [enrollModal, setEnrollModal] = useState(null); // { activity }
+    const [enrollUserId, setEnrollUserId] = useState("");
+    const [enrollMsg, setEnrollMsg] = useState(null);
+    const empty = { title: "", emoji: "🎯", type: "group", date: "", time: "", location: "", spots: 0, cost: 0, rewards: [], enrolledUsers: [], rewardDistributed: false, tableId: null, tableSlot: null, status: "未开始", occupiedTableCount: 0, occupiedTimeSlots: [], minParticipants: 0 };
+    const save = () => { const item = { ...modal, rewards: modal._rewards || modal.rewards }; delete item._rewards; adminSaveActivity(item); setModal(null); };
+    const del = (id) => adminDeleteActivity(id);
     const openReward = (a) => { setRewardModal(a); setAssignments({}); };
     const doDistribute = () => { const ra = rewardModal.rewards.map(r => ({ rank: r.rank, amount: r.amount, userName: assignments[r.rank] || "" })).filter(r => r.userName); distributeReward(rewardModal.id, ra); setRewardModal(null); };
+
+    const doAdminCancel = async (activity, uid) => {
+        const r = await adminCancelUserEnrollment(activity, uid);
+        if (r?.ok) setEnrollMsg({ type: "success", msg: r.msg });
+        else setEnrollMsg({ type: "fail", msg: r?.msg || "操作失败" });
+    };
+    const doAdminEnroll = async () => {
+        if (!enrollUserId || !enrollModal) return;
+        const u = allUsers.find(x => x.id === Number(enrollUserId));
+        if (!u) { setEnrollMsg({ type: "fail", msg: "用户不存在" }); return; }
+        const r = await adminEnrollForUser(u.id, u.nickname, enrollModal);
+        if (r?.ok) { setEnrollMsg({ type: "success", msg: r.msg }); setEnrollUserId(""); }
+        else setEnrollMsg({ type: "fail", msg: r?.msg || "操作失败" });
+    };
+
+    // Check if activity time has passed and participants are insufficient
+    const isUnderstaffed = (a) => {
+        if (a.minParticipants <= 0 || a.enrolledUsers.length >= a.minParticipants || a.status === "已取消") return false;
+        if (!a.date) return false;
+        const now = new Date();
+        const [datePart] = a.date.split(' ');
+        const [mon, day] = datePart.split('/').map(Number);
+        const timeParts = (a.time || '09:00').split(':').map(Number);
+        const actDate = new Date(now.getFullYear(), mon - 1, day, timeParts[0] || 9, timeParts[1] || 0);
+        return now >= actDate;
+    };
 
     return <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><h2 style={{ margin: 0, color: C.text }}>🎯 活动管理</h2><PBtn onClick={() => setModal({ ...empty, _rewards: [] })}>+ 添加活动</PBtn></div>
         <div style={{ background: C.card, borderRadius: 12, overflow: "auto", boxShadow: "0 2px 12px rgba(59,45,139,0.06)" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 800 }}>
-                <thead><tr><th style={st.th}>活动</th><th style={st.th}>类型</th><th style={st.th}>日期</th><th style={st.th}>地点</th><th style={st.th}>名额</th><th style={st.th}>报名</th><th style={st.th}>球台</th><th style={st.th}>奖励</th><th style={st.th}>操作</th></tr></thead>
-                <tbody>{activities.map(a => <tr key={a.id}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+                <thead><tr><th style={st.th}>活动</th><th style={st.th}>类型</th><th style={st.th}>日期</th><th style={st.th}>地点</th><th style={st.th}>名额</th><th style={st.th}>报名</th><th style={st.th}>最低</th><th style={st.th}>球台</th><th style={st.th}>奖励</th><th style={st.th}>操作</th></tr></thead>
+                <tbody>{activities.map(a => <tr key={a.id} style={a.status === "已取消" ? { opacity: 0.5 } : {}}>
                     <td style={st.td}><span style={{ fontWeight: 600 }}>{a.emoji} {a.title}</span></td>
                     <td style={st.td}><span style={st.badge(a.type === "match" ? C.warning : C.success)}>{a.type === "match" ? "比赛" : "团课"}</span></td>
-                    <td style={st.td}>{a.date} {a.time}</td><td style={st.td}>{a.location}</td><td style={st.td}>{a.spots}</td><td style={st.td}>{a.enrolledUsers.length}人</td>
+                    <td style={st.td}>{a.date} {a.time}</td><td style={st.td}>{a.location}</td><td style={st.td}>{a.spots}</td>
+                    <td style={st.td}>
+                        <span style={{ fontWeight: 600 }}>{a.enrolledUsers.length}人</span>
+                        {a.minParticipants > 0 && <span style={{ fontSize: 11, color: a.enrolledUsers.length >= a.minParticipants ? C.success : C.warning, marginLeft: 4 }}>
+                            {a.enrolledUsers.length >= a.minParticipants ? "✅" : `差${a.minParticipants - a.enrolledUsers.length}`}
+                        </span>}
+                    </td>
+                    <td style={st.td}><span style={{ fontSize: 12, color: C.textLight }}>{a.minParticipants || "-"}</span></td>
                     <td style={st.td}>{a.tableId ? tables.find(t => t.id === a.tableId)?.name || "-" : "-"}</td>
                     <td style={st.td}>{a.type === "match" && a.rewards.length > 0 ? <span style={{ color: C.warning, fontWeight: 600 }}>🏆 {a.rewards.length}档</span> : "-"}</td>
-                    <td style={st.td}><div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}><PBtn small secondary onClick={() => setModal({ ...a, _rewards: [...a.rewards] })}>编辑</PBtn>{a.type === "match" && a.rewards.length > 0 && !a.rewardDistributed && <PBtn small onClick={() => openReward(a)}>发奖</PBtn>}{a.rewardDistributed && <span style={st.badge(C.success)}>已发奖</span>}<PBtn small danger onClick={() => del(a.id)}>删除</PBtn></div></td>
+                    <td style={st.td}><div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        <PBtn small secondary onClick={() => setModal({ ...a, _rewards: [...a.rewards] })}>编辑</PBtn>
+                        <PBtn small secondary onClick={() => setEnrollModal(a)}>报名管理</PBtn>
+                        {a.type === "match" && a.rewards.length > 0 && !a.rewardDistributed && <PBtn small onClick={() => openReward(a)}>发奖</PBtn>}
+                        {a.rewardDistributed && <span style={st.badge(C.success)}>已发奖</span>}
+                        {isUnderstaffed(a) && <PBtn small danger onClick={() => adminCancelActivity(a.id)}>取消并退款</PBtn>}
+                        <PBtn small danger onClick={() => del(a.id)}>删除</PBtn>
+                    </div></td>
                 </tr>)}</tbody>
             </table>
         </div>
+
+        {/* Understaffed warnings */}
+        {activities.filter(isUnderstaffed).length > 0 && <div style={{ marginTop: 16, padding: 14, background: C.danger + "12", borderRadius: 12, border: `1px solid ${C.danger}30` }}>
+            <div style={{ fontWeight: 700, color: C.danger, marginBottom: 8 }}>⚠️ 人数不足警告</div>
+            {activities.filter(isUnderstaffed).map(a => <div key={a.id} style={{ fontSize: 13, color: C.text, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{a.emoji} {a.title} — {a.enrolledUsers.length}/{a.minParticipants}人，<span style={{ color: C.danger, fontWeight: 600 }}>不足最低要求</span></span>
+                <PBtn small danger onClick={() => adminCancelActivity(a.id)}>取消活动并全额退款</PBtn>
+            </div>)}
+        </div>}
+
+        {/* Edit modal */}
         <Modal show={!!modal} onClose={() => setModal(null)} title={modal?.id ? "编辑活动" : "添加活动"} wide>
             <div style={{ display: "flex", gap: 20 }}>
                 <div style={{ flex: 1 }}>
@@ -249,16 +304,51 @@ const ActivityMgmt = () => {
                     <div style={{ display: "flex", gap: 12 }}><div style={{ flex: 1 }}><Field label="类型"><select style={st.input} value={modal?.type || "group"} onChange={e => setModal(m => ({ ...m, type: e.target.value }))}><option value="group">团课</option><option value="match">比赛</option></select></Field></div><div style={{ flex: 1 }}><Field label="日期"><input style={st.input} value={modal?.date || ""} onChange={e => setModal(m => ({ ...m, date: e.target.value }))} /></Field></div></div>
                     <div style={{ display: "flex", gap: 12 }}><div style={{ flex: 1 }}><Field label="时间"><input style={st.input} value={modal?.time || ""} onChange={e => setModal(m => ({ ...m, time: e.target.value }))} /></Field></div><div style={{ flex: 1 }}><Field label="地点"><input style={st.input} value={modal?.location || ""} onChange={e => setModal(m => ({ ...m, location: e.target.value }))} /></Field></div></div>
                     <div style={{ display: "flex", gap: 12 }}><div style={{ flex: 1 }}><Field label="名额"><input type="number" style={st.input} value={modal?.spots || ""} onChange={e => setModal(m => ({ ...m, spots: Number(e.target.value) }))} /></Field></div><div style={{ flex: 1 }}><Field label="费用"><input type="number" style={st.input} value={modal?.cost || ""} onChange={e => setModal(m => ({ ...m, cost: Number(e.target.value) }))} /></Field></div></div>
+                    <Field label="最低开展人数"><input type="number" style={st.input} value={modal?.minParticipants || ""} onChange={e => setModal(m => ({ ...m, minParticipants: Number(e.target.value) }))} placeholder="0=不限" /></Field>
                     <Field label="占用球台"><select style={st.input} value={modal?.tableId || ""} onChange={e => setModal(m => ({ ...m, tableId: Number(e.target.value) || null }))}><option value="">无</option>{tables.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></Field>
                     {modal?.tableId && <Field label="占用时段"><input style={st.input} value={modal?.tableSlot || ""} onChange={e => setModal(m => ({ ...m, tableSlot: e.target.value }))} /></Field>}
                 </div>
                 {modal?.type === "match" && <div style={{ flex: 1 }}>
                     <Field label="🏆 奖励设置">{(modal?._rewards || []).map((r, i) => <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}><span style={{ fontSize: 13, fontWeight: 600, width: 40 }}>第{r.rank}名</span><input type="number" style={{ ...st.input, width: 100 }} value={r.amount} onChange={e => { const rw = [...(modal._rewards || [])]; rw[i] = { ...rw[i], amount: Number(e.target.value) }; setModal(m => ({ ...m, _rewards: rw })); }} /><span style={{ fontSize: 12, color: C.textLight }}>Coin</span><PBtn small danger onClick={() => { const rw = [...(modal._rewards || [])]; rw.splice(i, 1); setModal(m => ({ ...m, _rewards: rw })); }}>✕</PBtn></div>)}<PBtn small secondary onClick={() => { const rw = [...(modal?._rewards || [])]; rw.push({ rank: rw.length + 1, amount: 50 }); setModal(m => ({ ...m, _rewards: rw })); }}>+ 添加名次</PBtn></Field>
-                    <Field label="已报名用户">{modal?.enrolledUsers?.length > 0 ? <div style={{ fontSize: 13 }}>{modal.enrolledUsers.map(u => u.name).join(", ")}</div> : <div style={{ fontSize: 13, color: C.textLight }}>暂无</div>}</Field>
                 </div>}
             </div>
             <div style={{ display: "flex", gap: 10, marginTop: 8 }}><PBtn secondary onClick={() => setModal(null)}>取消</PBtn><PBtn onClick={save}>保存</PBtn></div>
         </Modal>
+
+        {/* Enrolled users management modal */}
+        <Modal show={!!enrollModal} onClose={() => { setEnrollModal(null); setEnrollMsg(null); }} title={`📋 报名管理 — ${enrollModal?.title || ""}`} wide>
+            {enrollMsg && <div style={{ padding: "8px 12px", borderRadius: 8, marginBottom: 12, fontSize: 13, fontWeight: 600, background: enrollMsg.type === "success" ? C.success + "15" : C.danger + "15", color: enrollMsg.type === "success" ? C.success : C.danger }}>{enrollMsg.msg}</div>}
+            <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 8 }}>已报名用户 ({enrollModal?.enrolledUsers?.length || 0}/{enrollModal?.spots || 0})</div>
+                {enrollModal?.enrolledUsers?.length > 0 ? <div style={{ background: C.bg, borderRadius: 10, overflow: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                        <thead><tr><th style={{ ...st.th, fontSize: 12 }}>昵称</th><th style={{ ...st.th, fontSize: 12 }}>报名时间</th><th style={{ ...st.th, fontSize: 12 }}>支付金额</th><th style={{ ...st.th, fontSize: 12 }}>操作</th></tr></thead>
+                        <tbody>{enrollModal.enrolledUsers.map((eu, i) => <tr key={i}>
+                            <td style={st.td}><span style={{ fontWeight: 600 }}>{eu.name}</span></td>
+                            <td style={st.td}><span style={{ fontSize: 12, color: C.textLight }}>{eu.enrolled_at ? new Date(eu.enrolled_at).toLocaleString("zh-CN") : "-"}</span></td>
+                            <td style={st.td}><span style={{ color: C.secondary, fontWeight: 600 }}>{eu.cost != null ? eu.cost : enrollModal.cost} 🪙</span></td>
+                            <td style={st.td}><PBtn small danger onClick={() => doAdminCancel(enrollModal, eu.user_id)}>取消报名</PBtn></td>
+                        </tr>)}</tbody>
+                    </table>
+                </div> : <div style={{ fontSize: 13, color: C.textLight, padding: 12 }}>暂无报名</div>}
+            </div>
+            <div style={{ borderTop: `1px solid ${C.bg}`, paddingTop: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 8 }}>➕ 手动添加用户</div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <select style={{ ...st.input, width: 200 }} value={enrollUserId} onChange={e => setEnrollUserId(e.target.value)}>
+                        <option value="">选择会员</option>
+                        {allUsers.filter(u => !enrollModal?.enrolledUsers?.some(e => e.user_id === u.id || e.name === u.nickname)).map(u => <option key={u.id} value={u.id}>{u.nickname} ({u.coins} 🪙)</option>)}
+                    </select>
+                    <PBtn small onClick={doAdminEnroll}>确认报名</PBtn>
+                    <span style={{ fontSize: 12, color: C.textLight }}>将自动扣除 {enrollModal?.cost || 0} Coin</span>
+                </div>
+            </div>
+            {enrollModal?.status !== "已取消" && <div style={{ borderTop: `1px solid ${C.bg}`, paddingTop: 12, marginTop: 12 }}>
+                <PBtn danger onClick={() => { adminCancelActivity(enrollModal.id); setEnrollModal(null); }}>🚫 取消活动并全额退款给所有用户</PBtn>
+            </div>}
+        </Modal>
+
+        {/* Reward distribution modal */}
         <Modal show={!!rewardModal} onClose={() => setRewardModal(null)} title="🏆 发放奖励">
             <p style={{ fontSize: 14, color: C.text, marginBottom: 16 }}>{rewardModal?.title}</p>
             {rewardModal?.rewards.map(r => <div key={r.rank} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}><span style={{ fontWeight: 700, width: 60 }}>第{r.rank}名</span><select style={{ ...st.input, width: 140 }} value={assignments[r.rank] || ""} onChange={e => setAssignments(a => ({ ...a, [r.rank]: e.target.value }))}><option value="">选择</option>{rewardModal.enrolledUsers.map(u => <option key={u.name} value={u.name}>{u.name}</option>)}</select><span style={{ color: C.warning, fontWeight: 600 }}>{r.amount} 🪙</span></div>)}
@@ -328,16 +418,52 @@ const TableMgmt = () => {
 };
 
 // ======= BOOKING MANAGEMENT (with filtering + proxy booking) =======
+
+// Helper: parse a booking's date string (e.g. "3/12 周四" or "3/12") into a comparable YYYY-MM-DD string
+const parseDateForCompare = (dateStr) => {
+    if (!dateStr) return null;
+    const m = dateStr.match(/^(\d{1,2})\/(\d{1,2})/);
+    if (!m) return null;
+    const mon = parseInt(m[1], 10);
+    const day = parseInt(m[2], 10);
+    // Infer the year: use current year, but if the month is far in the past (>6 months ago), assume next year
+    const now = new Date();
+    let year = now.getFullYear();
+    if (mon < now.getMonth() + 1 - 6) year += 1;
+    return `${year}-${String(mon).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+};
+
 const BookingMgmt = () => {
     const { bookings, activities, coaches, allUsers, approveBooking, rejectBooking, adminBookForUser, adminEnrollForUser, adminGetUserCards, DEFAULT_COACH_HOURS, HOURS, getNext7Days, isCoachSlotBooked, slotsRange, slotsDuration } = useStore();
     const [typeTab, setTypeTab] = useState("all");
     const [statusTab, setStatusTab] = useState("all");
-    const [dateFilter, setDateFilter] = useState("");
+    const [dateFrom, setDateFrom] = useState("");
+    const [dateTo, setDateTo] = useState("");
     const [proxyBook, setProxyBook] = useState(null);
     const [proxyEnroll, setProxyEnroll] = useState(null);
     const [proxyCards, setProxyCards] = useState([]);
     const [proxyMsg, setProxyMsg] = useState(null);
     const [proxySaving, setProxySaving] = useState(false);
+
+    // Quick date range helpers
+    const toISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const setQuickRange = (preset) => {
+        const now = new Date();
+        if (preset === "today") {
+            const t = toISO(now);
+            setDateFrom(t); setDateTo(t);
+        } else if (preset === "week") {
+            const dow = now.getDay() || 7; // Mon=1
+            const mon = new Date(now); mon.setDate(now.getDate() - dow + 1);
+            const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+            setDateFrom(toISO(mon)); setDateTo(toISO(sun));
+        } else if (preset === "month") {
+            const first = new Date(now.getFullYear(), now.getMonth(), 1);
+            const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+            setDateFrom(toISO(first)); setDateTo(toISO(last));
+        }
+    };
+    const clearDateRange = () => { setDateFrom(""); setDateTo(""); };
 
     const typeTabs = [
         { id: "all", label: "全部", count: bookings.length },
@@ -349,12 +475,27 @@ const BookingMgmt = () => {
         { id: "已确认", label: "已确认" }, { id: "已取消", label: "已取消" }, { id: "已拒绝", label: "已拒绝" },
     ];
 
-    const filtered = bookings.filter(b => {
+    const filtered = useMemo(() => bookings.filter(b => {
         if (typeTab !== "all" && b.type !== typeTab) return false;
         if (statusTab !== "all" && b.status !== statusTab) return false;
-        if (dateFilter && b.date !== dateFilter) return false;
+        // Date range filter
+        if (dateFrom || dateTo) {
+            const bd = parseDateForCompare(b.date);
+            if (!bd) return false;
+            if (dateFrom && bd < dateFrom) return false;
+            if (dateTo && bd > dateTo) return false;
+        }
         return true;
-    });
+    }), [bookings, typeTab, statusTab, dateFrom, dateTo]);
+
+    // Stats for filtered results
+    const stats = useMemo(() => ({
+        total: filtered.length,
+        confirmed: filtered.filter(b => b.status === "已确认").length,
+        pending: filtered.filter(b => b.status === "待确认").length,
+        cancelled: filtered.filter(b => b.status === "已取消").length,
+        rejected: filtered.filter(b => b.status === "已拒绝").length,
+    }), [filtered]);
 
     const SC = { 待确认: C.orange, 已确认: C.success, 已取消: "#999", 已拒绝: C.danger };
 
@@ -402,14 +543,33 @@ const BookingMgmt = () => {
         if (result.ok) setProxyEnroll(null);
     };
 
+    const qBtnStyle = (active) => ({ padding: "5px 14px", borderRadius: 16, border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer", background: active ? C.gradient : "#E8E5F0", color: active ? "#fff" : C.text, transition: "all .2s" });
+
     return <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <h2 style={{ margin: 0, color: C.text }}>📋 预约管理</h2>
             <div style={{ display: "flex", gap: 8 }}><PBtn onClick={startProxyBook}>👤 帮用户约课</PBtn><PBtn secondary onClick={startProxyEnroll}>👤 帮用户报名活动</PBtn></div>
         </div>
-        <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
-            <div><span style={{ fontSize: 13, fontWeight: 600, color: C.textLight, marginRight: 6 }}>日期:</span><input style={{ ...st.input, width: 100 }} value={dateFilter} onChange={e => setDateFilter(e.target.value)} placeholder="如 2/22" />{dateFilter && <span onClick={() => setDateFilter("")} style={{ cursor: "pointer", marginLeft: 4, color: C.danger, fontSize: 14 }}>✕</span>}</div>
+
+        {/* Date range filter */}
+        <div style={{ background: C.card, borderRadius: 12, padding: "14px 18px", marginBottom: 14, boxShadow: "0 2px 12px rgba(59,45,139,0.06)" }}>
+            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>📅 日期范围</span>
+                <input type="date" style={{ ...st.input, width: 150 }} value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
+                <span style={{ color: C.textLight, fontWeight: 600 }}>至</span>
+                <input type="date" style={{ ...st.input, width: 150 }} value={dateTo} onChange={e => setDateTo(e.target.value)} />
+                <div style={{ display: "flex", gap: 6 }}>
+                    <button style={qBtnStyle(false)} onClick={() => setQuickRange("today")}>今天</button>
+                    <button style={qBtnStyle(false)} onClick={() => setQuickRange("week")}>本周</button>
+                    <button style={qBtnStyle(false)} onClick={() => setQuickRange("month")}>本月</button>
+                </div>
+                {(dateFrom || dateTo) && <span onClick={clearDateRange} style={{ cursor: "pointer", color: C.danger, fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 2 }}>✕ 清除日期</span>}
+            </div>
+            {(dateFrom || dateTo) && <div style={{ marginTop: 8, fontSize: 12, color: C.textLight }}>
+                当前范围: {dateFrom || "不限"} 至 {dateTo || "不限"} · 共 {filtered.length} 条记录
+            </div>}
         </div>
+
         <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 600, color: C.textLight }}>按类型筛选</div>
         <TabBar tabs={typeTabs} value={typeTab} onChange={setTypeTab} />
         <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 600, color: C.textLight }}>按状态筛选</div>
@@ -432,6 +592,16 @@ const BookingMgmt = () => {
                     </tr>)}</tbody>
                 </table>
             </div>}
+
+        {/* Statistics summary bar */}
+        <div style={{ display: "flex", gap: 16, marginTop: 14, padding: "14px 20px", background: C.card, borderRadius: 12, boxShadow: "0 2px 12px rgba(59,45,139,0.06)", flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>📊 统计</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: C.primary, display: "inline-block" }} /><span style={{ fontSize: 13, color: C.textLight }}>总预约:</span><b style={{ color: C.primary, fontSize: 14 }}>{stats.total}</b></div>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: C.success, display: "inline-block" }} /><span style={{ fontSize: 13, color: C.textLight }}>已确认:</span><b style={{ color: C.success, fontSize: 14 }}>{stats.confirmed}</b></div>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: C.orange, display: "inline-block" }} /><span style={{ fontSize: 13, color: C.textLight }}>待确认:</span><b style={{ color: C.orange, fontSize: 14 }}>{stats.pending}</b></div>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: "#999", display: "inline-block" }} /><span style={{ fontSize: 13, color: C.textLight }}>已取消:</span><b style={{ color: "#999", fontSize: 14 }}>{stats.cancelled}</b></div>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: C.danger, display: "inline-block" }} /><span style={{ fontSize: 13, color: C.textLight }}>已拒绝:</span><b style={{ color: C.danger, fontSize: 14 }}>{stats.rejected}</b></div>
+        </div>
 
         {/* Proxy book coach modal */}
         <Modal show={!!proxyBook} onClose={() => setProxyBook(null)} title="👤 帮用户约课" wide>
@@ -510,8 +680,8 @@ const MemberMgmt = () => {
     const [coinAdjust, setCoinAdjust] = useState({ amount: 0, reason: "" });
     const [newCard, setNewCard] = useState(null);
 
-    const fmtDate = (d) => { if (!d) return "-"; const dt = new Date(d); return `${dt.getMonth()+1}/${dt.getDate()} ${dt.getHours()}:${String(dt.getMinutes()).padStart(2,"0")}`; };
-    const fmtDateFull = (d) => { if (!d) return "-"; const dt = new Date(d); return `${dt.getFullYear()}/${dt.getMonth()+1}/${dt.getDate()}`; };
+    const fmtDate = (d) => { if (!d) return "-"; const dt = new Date(d); return `${dt.getMonth() + 1}/${dt.getDate()} ${dt.getHours()}:${String(dt.getMinutes()).padStart(2, "0")}`; };
+    const fmtDateFull = (d) => { if (!d) return "-"; const dt = new Date(d); return `${dt.getFullYear()}/${dt.getMonth() + 1}/${dt.getDate()}`; };
 
     const openUser = async (u) => {
         setSelectedUser(u);
@@ -602,29 +772,29 @@ const MemberMgmt = () => {
             {/* Recharge records tab */}
             {detailTab === "recharge" && <div style={{ background: C.card, borderRadius: 14, padding: 16, boxShadow: "0 2px 12px rgba(59,45,139,0.06)" }}>
                 {rechargeTxs.length === 0 ? <div style={{ color: C.textLight, textAlign: "center", padding: 24 }}>暂无充值记录</div> :
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                    <thead><tr><th style={st.th}>描述</th><th style={st.th}>金额</th><th style={st.th}>类型</th><th style={st.th}>时间</th></tr></thead>
-                    <tbody>{rechargeTxs.map(t => <tr key={t.id}>
-                        <td style={st.td}>{t.desc}</td>
-                        <td style={st.td}><span style={{ color: C.success, fontWeight: 700 }}>+{t.amount}</span></td>
-                        <td style={st.td}><span style={st.badge(C.success)}>{t.payType}</span></td>
-                        <td style={{ ...st.td, fontSize: 12, color: C.textLight }}>{t.time}</td>
-                    </tr>)}</tbody>
-                </table>}
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                        <thead><tr><th style={st.th}>描述</th><th style={st.th}>金额</th><th style={st.th}>类型</th><th style={st.th}>时间</th></tr></thead>
+                        <tbody>{rechargeTxs.map(t => <tr key={t.id}>
+                            <td style={st.td}>{t.desc}</td>
+                            <td style={st.td}><span style={{ color: C.success, fontWeight: 700 }}>+{t.amount}</span></td>
+                            <td style={st.td}><span style={st.badge(C.success)}>{t.payType}</span></td>
+                            <td style={{ ...st.td, fontSize: 12, color: C.textLight }}>{t.time}</td>
+                        </tr>)}</tbody>
+                    </table>}
             </div>}
 
             {/* Consumption records tab */}
             {detailTab === "consume" && <div style={{ background: C.card, borderRadius: 14, padding: 16, boxShadow: "0 2px 12px rgba(59,45,139,0.06)" }}>
                 {consumeTxs.length === 0 ? <div style={{ color: C.textLight, textAlign: "center", padding: 24 }}>暂无消费记录</div> :
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                    <thead><tr><th style={st.th}>描述</th><th style={st.th}>金额</th><th style={st.th}>类型</th><th style={st.th}>时间</th></tr></thead>
-                    <tbody>{consumeTxs.map(t => <tr key={t.id}>
-                        <td style={st.td}>{t.desc}</td>
-                        <td style={st.td}><span style={{ color: C.danger, fontWeight: 700 }}>{t.amount}</span></td>
-                        <td style={st.td}><span style={st.badge(C.warning)}>{t.payType}</span></td>
-                        <td style={{ ...st.td, fontSize: 12, color: C.textLight }}>{t.time}</td>
-                    </tr>)}</tbody>
-                </table>}
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                        <thead><tr><th style={st.th}>描述</th><th style={st.th}>金额</th><th style={st.th}>类型</th><th style={st.th}>时间</th></tr></thead>
+                        <tbody>{consumeTxs.map(t => <tr key={t.id}>
+                            <td style={st.td}>{t.desc}</td>
+                            <td style={st.td}><span style={{ color: C.danger, fontWeight: 700 }}>{t.amount}</span></td>
+                            <td style={st.td}><span style={st.badge(C.warning)}>{t.payType}</span></td>
+                            <td style={{ ...st.td, fontSize: 12, color: C.textLight }}>{t.time}</td>
+                        </tr>)}</tbody>
+                    </table>}
             </div>}
 
             {/* Course cards tab */}
@@ -634,20 +804,20 @@ const MemberMgmt = () => {
                     <PBtn small onClick={() => setNewCard({ courseId: courses[0]?.id || null })}>+ 开新卡</PBtn>
                 </div>
                 {userCards.length === 0 ? <div style={{ color: C.textLight, textAlign: "center", padding: 16 }}>暂无课程卡</div> :
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                    <thead><tr><th style={st.th}>课程</th><th style={st.th}>总次数</th><th style={st.th}>剩余</th><th style={st.th}>购买日期</th><th style={st.th}>状态</th><th style={st.th}>操作</th></tr></thead>
-                    <tbody>{userCards.map(c => <tr key={c.id}>
-                        <td style={st.td}><span style={{ fontWeight: 600 }}>{c.name}</span></td>
-                        <td style={st.td}>{c.total}</td>
-                        <td style={st.td}><span style={{ color: c.remaining > 0 ? C.success : C.danger, fontWeight: 700 }}>{c.remaining}</span></td>
-                        <td style={st.td}>{c.date}</td>
-                        <td style={st.td}><span style={st.badge(c.remaining > 0 ? C.success : C.textLight)}>{c.remaining > 0 ? "有效" : "已用完"}</span></td>
-                        <td style={st.td}><div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                            <input type="number" defaultValue={c.remaining} style={{ ...st.input, width: 50, padding: "4px 6px", fontSize: 12 }} id={`card-${c.id}`} />
-                            <PBtn small onClick={() => doUpdateCard(c.id, Number(document.getElementById(`card-${c.id}`).value))}>修改</PBtn>
-                        </div></td>
-                    </tr>)}</tbody>
-                </table>}
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                        <thead><tr><th style={st.th}>课程</th><th style={st.th}>总次数</th><th style={st.th}>剩余</th><th style={st.th}>购买日期</th><th style={st.th}>状态</th><th style={st.th}>操作</th></tr></thead>
+                        <tbody>{userCards.map(c => <tr key={c.id}>
+                            <td style={st.td}><span style={{ fontWeight: 600 }}>{c.name}</span></td>
+                            <td style={st.td}>{c.total}</td>
+                            <td style={st.td}><span style={{ color: c.remaining > 0 ? C.success : C.danger, fontWeight: 700 }}>{c.remaining}</span></td>
+                            <td style={st.td}>{c.date}</td>
+                            <td style={st.td}><span style={st.badge(c.remaining > 0 ? C.success : C.textLight)}>{c.remaining > 0 ? "有效" : "已用完"}</span></td>
+                            <td style={st.td}><div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                                <input type="number" defaultValue={c.remaining} style={{ ...st.input, width: 50, padding: "4px 6px", fontSize: 12 }} id={`card-${c.id}`} />
+                                <PBtn small onClick={() => doUpdateCard(c.id, Number(document.getElementById(`card-${c.id}`).value))}>修改</PBtn>
+                            </div></td>
+                        </tr>)}</tbody>
+                    </table>}
                 {newCard && <div style={{ marginTop: 12, padding: 12, background: C.primary + "06", borderRadius: 10 }}>
                     <Field label="选择课程"><select style={st.input} value={newCard.courseId || ""} onChange={e => setNewCard(v => ({ ...v, courseId: Number(e.target.value) }))}>
                         {courses.map(c => <option key={c.id} value={c.id}>{c.title} ({c.lessons}课时)</option>)}

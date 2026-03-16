@@ -182,9 +182,40 @@ const CoursePage = () => {
 
 // ======= COMMUNITY PAGE =======
 const CommunityPage = () => {
-  const { posts, addPost, likePost, votePost } = useStore();
+  const { posts, addPost, editPost, deletePost, likePost, votePost, fetchComments, addComment, userId, userName } = useStore();
   const [newPost, setNewPost] = useState("");
+  const [menuOpen, setMenuOpen] = useState(null);
+  const [editModal, setEditModal] = useState(null); // { id, content }
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [openComments, setOpenComments] = useState({}); // { postId: true }
+  const [commentLists, setCommentLists] = useState({}); // { postId: [...] }
+  const [commentInputs, setCommentInputs] = useState({}); // { postId: "text" }
   const sorted = [...posts].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+
+  const toggleComments = async (postId) => {
+    const isOpen = openComments[postId];
+    setOpenComments(p => ({ ...p, [postId]: !isOpen }));
+    if (!isOpen && !commentLists[postId]) {
+      const cmts = await fetchComments(postId);
+      setCommentLists(p => ({ ...p, [postId]: cmts }));
+    }
+  };
+
+  const doAddComment = async (postId) => {
+    const text = commentInputs[postId]?.trim();
+    if (!text) return;
+    await addComment(postId, text);
+    setCommentInputs(p => ({ ...p, [postId]: "" }));
+    const cmts = await fetchComments(postId);
+    setCommentLists(p => ({ ...p, [postId]: cmts }));
+  };
+
+  const timeSince = (dateStr) => {
+    if (!dateStr) return "刚刚";
+    const s = Math.floor((new Date() - new Date(dateStr)) / 1000);
+    if (s < 60) return "刚刚"; if (s < 3600) return `${Math.floor(s / 60)}分钟前`;
+    if (s < 86400) return `${Math.floor(s / 3600)}小时前`; return `${Math.floor(s / 86400)}天前`;
+  };
 
   return <div style={{ padding: "16px 0" }}><h2 style={{ margin: "0 0 12px", color: COLORS.text, fontSize: 18 }}>💬 社区</h2>
     <div style={{ background: COLORS.card, borderRadius: 12, padding: 12, marginBottom: 14, display: "flex", gap: 8 }}>
@@ -192,11 +223,19 @@ const CommunityPage = () => {
       <button onClick={() => { if (newPost.trim()) { addPost(newPost.trim()); setNewPost(""); } }} style={{ background: COLORS.gradient, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>发布</button>
     </div>
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {sorted.map(p => <div key={p.id} style={{ background: COLORS.card, borderRadius: 12, padding: 14, border: p.pinned ? `2px solid ${COLORS.secondary}` : "none" }}>
+      {sorted.map(p => <div key={p.id} style={{ background: COLORS.card, borderRadius: 12, padding: 14, border: p.pinned ? `2px solid ${COLORS.secondary}` : "none", position: "relative" }}>
         <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 8 }}>
           <div style={{ width: 36, height: 36, borderRadius: "50%", background: COLORS.gradient, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "#fff" }}>{p.avatar || "🙋"}</div>
-          <div><div style={{ fontWeight: 700, fontSize: 14, color: COLORS.text }}>{p.user}</div><div style={{ fontSize: 12, color: COLORS.textLight }}>{p.time}</div></div>
+          <div style={{ flex: 1 }}><div style={{ fontWeight: 700, fontSize: 14, color: COLORS.text }}>{p.user}</div><div style={{ fontSize: 12, color: COLORS.textLight }}>{p.time}</div></div>
           {p.pinned && <Pill color={COLORS.secondary}>📌 置顶</Pill>}
+          {/* More menu */}
+          <div style={{ position: "relative" }}>
+            <span onClick={() => setMenuOpen(menuOpen === p.id ? null : p.id)} style={{ cursor: "pointer", fontSize: 18, padding: "4px 8px", borderRadius: 6, color: COLORS.textLight }}>⋯</span>
+            {menuOpen === p.id && <div style={{ position: "absolute", right: 0, top: 28, background: "#fff", borderRadius: 10, boxShadow: "0 4px 16px rgba(0,0,0,0.15)", zIndex: 10, overflow: "hidden", width: 120 }}>
+              <div onClick={() => { setEditModal({ id: p.id, content: p.content }); setMenuOpen(null); }} style={{ padding: "10px 14px", fontSize: 13, cursor: "pointer", fontWeight: 600, color: COLORS.text, borderBottom: "1px solid #f0f0f0" }}>✏️ 编辑</div>
+              <div onClick={() => { setDeleteConfirm(p.id); setMenuOpen(null); }} style={{ padding: "10px 14px", fontSize: 13, cursor: "pointer", fontWeight: 600, color: COLORS.danger }}>🗑️ 删除</div>
+            </div>}
+          </div>
         </div>
         <p style={{ margin: "0 0 8px", fontSize: 14, color: COLORS.text, lineHeight: 1.5 }}>{p.content}</p>
         {p.type === "投票" && <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>
@@ -204,25 +243,87 @@ const CommunityPage = () => {
           <button disabled={p.voted} onClick={() => votePost(p.id, "no")} style={{ flex: 1, padding: "8px", borderRadius: 8, border: "1px solid " + COLORS.secondary, background: p.voted === "no" ? COLORS.secondary + "20" : "#fff", color: COLORS.secondary, fontWeight: 600, cursor: p.voted ? "default" : "pointer" }}>👎 {p.voteNo}</button>
         </div>}
         <div style={{ display: "flex", gap: 16, fontSize: 13, color: COLORS.textLight }}>
-          <span onClick={() => likePost(p.id)} style={{ cursor: "pointer" }}>❤️ {p.likes}</span><span>💬 {p.comments}</span>
+          <span onClick={() => likePost(p.id)} style={{ cursor: "pointer" }}>❤️ {p.likes}</span>
+          <span onClick={() => toggleComments(p.id)} style={{ cursor: "pointer" }}>💬 {p.comments}</span>
         </div>
+
+        {/* Comments section */}
+        {openComments[p.id] && <div style={{ marginTop: 10, borderTop: `1px solid ${COLORS.textLight}20`, paddingTop: 10 }}>
+          {(commentLists[p.id] || []).map(c => <div key={c.id} style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "start" }}>
+            <div style={{ width: 24, height: 24, borderRadius: "50%", background: COLORS.primaryLight, fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", flexShrink: 0 }}>{c.user_avatar || "🙋"}</div>
+            <div>
+              <span style={{ fontWeight: 600, fontSize: 12, color: COLORS.text }}>{c.user_name}</span>
+              <span style={{ fontSize: 11, color: COLORS.textLight, marginLeft: 6 }}>{timeSince(c.created_at)}</span>
+              <div style={{ fontSize: 13, color: COLORS.text, marginTop: 2 }}>{c.content}</div>
+            </div>
+          </div>)}
+          <div style={{ display: "flex", gap: 8 }}>
+            <input value={commentInputs[p.id] || ""} onChange={e => setCommentInputs(prev => ({ ...prev, [p.id]: e.target.value }))} onKeyDown={e => { if (e.key === "Enter") doAddComment(p.id); }} placeholder="写评论..." style={{ flex: 1, border: `1px solid ${COLORS.textLight}40`, borderRadius: 8, padding: "6px 10px", fontSize: 13, outline: "none", fontFamily: "inherit" }} />
+            <button onClick={() => doAddComment(p.id)} style={{ background: COLORS.gradient, color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontWeight: 600, fontSize: 12, cursor: "pointer" }}>发送</button>
+          </div>
+        </div>}
       </div>)}
     </div>
+
+    {/* Edit modal */}
+    {editModal && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }} onClick={() => setEditModal(null)}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: 24, width: 400, maxWidth: "90vw" }} onClick={e => e.stopPropagation()}>
+        <h3 style={{ margin: "0 0 12px", color: COLORS.text }}>编辑帖子</h3>
+        <textarea value={editModal.content} onChange={e => setEditModal(m => ({ ...m, content: e.target.value }))} style={{ width: "100%", minHeight: 100, border: `1px solid ${COLORS.textLight}40`, borderRadius: 10, padding: 12, fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
+        <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+          <button onClick={() => setEditModal(null)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${COLORS.primary}`, background: "#fff", color: COLORS.primary, fontWeight: 600, cursor: "pointer" }}>取消</button>
+          <button onClick={() => { editPost(editModal.id, editModal.content); setEditModal(null); }} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.gradient, color: "#fff", fontWeight: 600, cursor: "pointer" }}>保存</button>
+        </div>
+      </div>
+    </div>}
+
+    {/* Delete confirmation */}
+    {deleteConfirm && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }} onClick={() => setDeleteConfirm(null)}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: 24, width: 340, maxWidth: "90vw" }} onClick={e => e.stopPropagation()}>
+        <h3 style={{ margin: "0 0 12px", color: COLORS.text }}>确定删除这条帖子？</h3>
+        <p style={{ fontSize: 14, color: COLORS.textLight, marginBottom: 16 }}>删除后将无法恢复</p>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={() => setDeleteConfirm(null)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${COLORS.primary}`, background: "#fff", color: COLORS.primary, fontWeight: 600, cursor: "pointer" }}>取消</button>
+          <button onClick={() => { deletePost(deleteConfirm); setDeleteConfirm(null); }} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.danger, color: "#fff", fontWeight: 600, cursor: "pointer" }}>删除</button>
+        </div>
+      </div>
+    </div>}
   </div>;
 };
 
 // ======= ACTIVITY PAGE =======
 const ActivityPage = () => {
-  const { activities, joinActivity, joinedIds } = useStore();
+  const { activities, joinActivity, cancelActivityEnrollment, joinedIds, userId, userName } = useStore();
   const [filter, setFilter] = useState("all");
+  const [cancelModal, setCancelModal] = useState(null);
   const filtered = activities.filter(a => a.status !== "已取消" && (filter === "all" || (filter === "group" ? a.type === "group" : a.type === "match")));
   const tabs = [{ id: "all", label: "全部" }, { id: "group", label: "团课" }, { id: "match", label: "比赛" }];
+
+  // Check if user is enrolled (by user_id or name, for backwards compat)
+  const isEnrolled = (a) => a.enrolledUsers.some(e => e.user_id === userId || e.name === userName) || joinedIds.includes(a.id);
+
+  // Estimate refund for cancel modal
+  const getRefundInfo = (a) => {
+    const entry = a.enrolledUsers.find(e => e.user_id === userId || e.name === userName);
+    const entryCost = entry?.cost != null ? entry.cost : a.cost;
+    let refundRate = 1.0;
+    if (a.date) {
+      const now = new Date();
+      const [datePart] = a.date.split(' ');
+      const [mon, day] = datePart.split('/').map(Number);
+      const timeParts = (a.time || '09:00').split(':').map(Number);
+      const actDate = new Date(now.getFullYear(), mon - 1, day, timeParts[0] || 9, timeParts[1] || 0);
+      const hoursUntil = (actDate - now) / (1000 * 60 * 60);
+      if (hoursUntil <= 24) refundRate = 0.5;
+    }
+    return { cost: entryCost, refundRate, refundAmt: Math.round(entryCost * refundRate) };
+  };
 
   return <div style={{ padding: "16px 0" }}><h2 style={{ margin: "0 0 12px", color: COLORS.text, fontSize: 18 }}>🎯 活动</h2>
     <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>{tabs.map(t => <button key={t.id} onClick={() => setFilter(t.id)} style={{ padding: "6px 16px", borderRadius: 20, border: "none", fontWeight: 600, fontSize: 13, cursor: "pointer", background: filter === t.id ? COLORS.gradient : "#E8E5F0", color: filter === t.id ? "#fff" : COLORS.text }}>{t.label}</button>)}</div>
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {filtered.map(a => {
-        const joined = joinedIds.includes(a.id); const full = a.enrolledUsers.length >= a.spots; return <div key={a.id} style={{ background: COLORS.card, borderRadius: 14, padding: 14, boxShadow: "0 2px 10px rgba(59,45,139,0.06)" }}>
+        const joined = isEnrolled(a); const full = a.enrolledUsers.length >= a.spots; return <div key={a.id} style={{ background: COLORS.card, borderRadius: 14, padding: 14, boxShadow: "0 2px 10px rgba(59,45,139,0.06)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
             <div><div style={{ fontWeight: 700, fontSize: 15, color: COLORS.text, marginBottom: 4 }}>{a.emoji} {a.title}</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
@@ -233,12 +334,22 @@ const ActivityPage = () => {
               </div>
               <div style={{ fontSize: 13, color: COLORS.textLight }}>{a.enrolledUsers.length}/{a.spots} 已报名 · {a.cost} Coin</div>
               {a.minParticipants > 0 && <div style={{ marginTop: 6 }}>
+                {/* Progress bar */}
+                <div style={{ background: "#eee", borderRadius: 6, height: 8, width: "100%", marginBottom: 4, maxWidth: 200 }}>
+                  <div style={{ height: 8, borderRadius: 6, background: a.enrolledUsers.length >= a.minParticipants ? COLORS.success : COLORS.warning, width: `${Math.min(100, (a.enrolledUsers.length / a.minParticipants) * 100)}%`, transition: "width 0.3s" }} />
+                </div>
                 {a.enrolledUsers.length >= a.minParticipants
                   ? <div style={{ background: COLORS.success + "15", color: COLORS.success, padding: "4px 10px", borderRadius: 8, fontSize: 12, fontWeight: 700, display: "inline-block" }}>✅ 已达开{a.type === "match" ? "赛" : "课"}条件</div>
                   : <div style={{ fontSize: 12, color: COLORS.warning, fontWeight: 600 }}>📢 最低{a.minParticipants}人{a.type === "match" ? "开赛" : "开课"}，已报名 {a.enrolledUsers.length}/{a.minParticipants}，还差{a.minParticipants - a.enrolledUsers.length}人</div>}
               </div>}
             </div>
-            <button disabled={joined || full} onClick={() => joinActivity(a)} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: joined ? "#ccc" : full ? "#eee" : COLORS.gradient, color: joined || full ? "#999" : "#fff", fontWeight: 600, fontSize: 13, cursor: joined || full ? "default" : "pointer" }}>{joined ? "已报名" : full ? "已满" : "报名"}</button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {joined ? (
+                <button onClick={() => setCancelModal(a)} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${COLORS.danger}`, background: "#fff", color: COLORS.danger, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>取消报名</button>
+              ) : (
+                <button disabled={full} onClick={() => joinActivity(a)} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: full ? "#eee" : COLORS.gradient, color: full ? "#999" : "#fff", fontWeight: 600, fontSize: 13, cursor: full ? "default" : "pointer" }}>{full ? "已满" : "报名"}</button>
+              )}
+            </div>
           </div>
           {a.type === "match" && a.rewards.length > 0 && <div style={{ marginTop: 8, padding: "8px 12px", background: COLORS.warning + "10", borderRadius: 8 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: COLORS.warning, marginBottom: 4 }}>🏆 奖励</div>
@@ -248,6 +359,30 @@ const ActivityPage = () => {
         </div>;
       })}
     </div>
+
+    {/* Cancel enrollment modal */}
+    {cancelModal && (() => {
+      const info = getRefundInfo(cancelModal);
+      return <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }} onClick={() => setCancelModal(null)}>
+        <div style={{ background: "#fff", borderRadius: 20, padding: 24, width: 380, maxWidth: "90vw" }} onClick={e => e.stopPropagation()}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: COLORS.text, marginBottom: 14 }}>取消报名</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: COLORS.text, marginBottom: 12 }}>{cancelModal.emoji} {cancelModal.title}</div>
+          <div style={{ background: COLORS.warning + "12", borderRadius: 12, padding: 14, marginBottom: 16, fontSize: 13, lineHeight: 1.8 }}>
+            <div style={{ fontWeight: 700, color: COLORS.warning, marginBottom: 4 }}>📋 退款规则</div>
+            <div>• 活动开始前超过24小时：<span style={{ color: COLORS.success, fontWeight: 600 }}>全额退款</span></div>
+            <div>• 活动开始前24小时内：<span style={{ color: COLORS.danger, fontWeight: 600 }}>扣50%报名费</span></div>
+            <div style={{ marginTop: 8, padding: "8px 12px", background: "#fff", borderRadius: 8, fontWeight: 600 }}>
+              报名费用：{info.cost} Coin · 退还比例：{Math.round(info.refundRate * 100)}%<br />
+              <span style={{ color: COLORS.primary, fontSize: 16 }}>预估退款：{info.refundAmt} Coin</span>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={() => setCancelModal(null)} style={{ flex: 1, padding: "10px 16px", borderRadius: 10, border: `1px solid ${COLORS.primary}`, background: "#fff", color: COLORS.primary, fontWeight: 600, fontSize: 14, cursor: "pointer" }}>返回</button>
+            <button onClick={() => { cancelActivityEnrollment(cancelModal); setCancelModal(null); }} style={{ flex: 1, padding: "10px 16px", borderRadius: 10, border: "none", background: COLORS.danger, color: "#fff", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>确认取消</button>
+          </div>
+        </div>
+      </div>;
+    })()}
   </div>;
 };
 

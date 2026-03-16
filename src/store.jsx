@@ -276,13 +276,44 @@ export function StoreProvider({ children }) {
   const joinActivity = useCallback(async (activity) => {
     const ok = await spendCoins(activity.cost, `报名: ${activity.title}`);
     if (ok) {
-      const newEnrolled = [...activity.enrolledUsers, { name: userName }];
+      const newEnrolled = [...activity.enrolledUsers, { user_id: userId, name: userName, enrolled_at: new Date().toISOString(), cost: activity.cost }];
       await supabase.from("activities").update({ enrolled_users: newEnrolled }).eq("id", activity.id);
       setJoinedIds(p => [...p, activity.id]);
       setResultModal({ type: "success", title: "报名成功", msg: `已报名 ${activity.title}` });
       await refetchActivities();
       await refetchUser();
     }
+  }, [userId, userName, coins]);
+
+  const cancelActivityEnrollment = useCallback(async (activity) => {
+    const entry = activity.enrolledUsers.find(e => e.user_id === userId || e.name === userName);
+    if (!entry) return;
+    const entryCost = entry.cost != null ? entry.cost : activity.cost;
+    // Determine refund rate: >24h before activity = 100%, ≤24h = 50%
+    let refundRate = 1.0;
+    if (activity.date) {
+      const now = new Date();
+      // Parse activity date+time like "3/15 14:00"
+      const [datePart] = activity.date.split(' ');
+      const [mon, day] = datePart.split('/').map(Number);
+      const timeParts = (activity.time || '09:00').split(':').map(Number);
+      const actDate = new Date(now.getFullYear(), mon - 1, day, timeParts[0] || 9, timeParts[1] || 0);
+      const hoursUntil = (actDate - now) / (1000 * 60 * 60);
+      if (hoursUntil <= 24) refundRate = 0.5;
+    }
+    const refundAmt = Math.round(entryCost * refundRate);
+    // Refund
+    if (refundAmt > 0) {
+      await supabase.from("users").update({ coins: coins + refundAmt }).eq("id", userId);
+      await addTx(`取消活动报名退款: ${activity.title}${refundRate < 1 ? ' (50%)' : ' (全额)'}`, refundAmt, "coin");
+    }
+    // Remove from enrolled
+    const newEnrolled = activity.enrolledUsers.filter(e => !(e.user_id === userId || e.name === userName));
+    await supabase.from("activities").update({ enrolled_users: newEnrolled }).eq("id", activity.id);
+    setJoinedIds(p => p.filter(id => id !== activity.id));
+    setResultModal({ type: "success", title: "已取消报名", msg: `已退还 ${refundAmt} Coin${refundRate < 1 ? '（24小时内取消扣50%）' : '（全额退款）'}` });
+    await refetchActivities();
+    await refetchUser();
   }, [userId, userName, coins]);
 
   const bookTable = useCallback(async (selectedSlots, dateKey) => {
@@ -396,6 +427,29 @@ export function StoreProvider({ children }) {
     setPosts(ps => ps.map(x => x.id === id ? { ...x, voted: vote, voteYes: x.voteYes + (vote === "yes" ? 1 : 0), voteNo: x.voteNo + (vote === "no" ? 1 : 0) } : x));
   }, [posts]);
 
+  const editPost = useCallback(async (id, newContent) => {
+    await supabase.from("posts").update({ content: newContent }).eq("id", id);
+    await refetchPosts();
+  }, []);
+
+  const deletePost = useCallback(async (id) => {
+    await supabase.from("posts").delete().eq("id", id);
+    await refetchPosts();
+  }, []);
+
+  const fetchComments = useCallback(async (postId) => {
+    const { data } = await supabase.from("comments").select("*").eq("post_id", postId).order("created_at", { ascending: true });
+    return data || [];
+  }, []);
+
+  const addComment = useCallback(async (postId, content) => {
+    await supabase.from("comments").insert({ post_id: postId, user_id: userId, user_name: userName, user_avatar: "🙋", content });
+    // Increment comment count on the post
+    const p = posts.find(x => x.id === postId);
+    if (p) await supabase.from("posts").update({ comments: (p.comments || 0) + 1 }).eq("id", postId);
+    await refetchPosts();
+  }, [userId, userName, posts]);
+
   // Profile
   const setUserName = useCallback(async (name) => {
     setUserNameState(name);
@@ -447,17 +501,48 @@ export function StoreProvider({ children }) {
     if (!a) return;
     // Refund each enrolled user
     for (const eu of a.enrolledUsers) {
-      const { data: u } = await supabase.from("users").select("*").eq("nickname", eu.name).single();
-      if (u && a.cost > 0) {
-        await supabase.from("users").update({ coins: u.coins + a.cost }).eq("id", u.id);
-        await addTx(`活动取消退款: ${a.title}`, a.cost, "coin", u.id);
+      const euCost = eu.cost != null ? eu.cost : a.cost;
+      const uid = eu.user_id;
+      if (uid) {
+        const { data: u } = await supabase.from("users").select("*").eq("id", uid).single();
+        if (u && euCost > 0) {
+          await supabase.from("users").update({ coins: u.coins + euCost }).eq("id", uid);
+          await addTx(`活动取消全额退款: ${a.title}`, euCost, "coin", uid);
+        }
+      } else {
+        // Fallback: find by nickname
+        const { data: u } = await supabase.from("users").select("*").eq("nickname", eu.name).single();
+        if (u && euCost > 0) {
+          await supabase.from("users").update({ coins: u.coins + euCost }).eq("id", u.id);
+          await addTx(`活动取消全额退款: ${a.title}`, euCost, "coin", u.id);
+        }
       }
     }
-    await supabase.from("activities").update({ status: "已取消" }).eq("id", activityId);
+    await supabase.from("activities").update({ status: "已取消", enrolled_users: [] }).eq("id", activityId);
     await refetchActivities();
     await refetchUsers();
     await refetchUser();
   }, [activities, userId]);
+
+  // Admin: cancel specific user's enrollment with full refund
+  const adminCancelUserEnrollment = useCallback(async (activity, targetUserId) => {
+    const entry = activity.enrolledUsers.find(e => e.user_id === targetUserId);
+    if (!entry) return { ok: false, msg: '该用户未报名' };
+    const euCost = entry.cost != null ? entry.cost : activity.cost;
+    // Full refund for admin cancel
+    if (euCost > 0) {
+      const { data: u } = await supabase.from("users").select("coins").eq("id", targetUserId).single();
+      if (u) {
+        await supabase.from("users").update({ coins: u.coins + euCost }).eq("id", targetUserId);
+        await addTx(`管理员取消报名退款: ${activity.title}`, euCost, "coin", targetUserId);
+      }
+    }
+    const newEnrolled = activity.enrolledUsers.filter(e => e.user_id !== targetUserId);
+    await supabase.from("activities").update({ enrolled_users: newEnrolled }).eq("id", activity.id);
+    await refetchActivities();
+    await refetchUsers();
+    return { ok: true, msg: `已取消 ${entry.name} 的报名，退还 ${euCost} Coin` };
+  }, []);
 
   // ---- ADMIN CRUD (Tables) ----
   const adminSaveTable = useCallback(async (item) => {
@@ -570,7 +655,7 @@ export function StoreProvider({ children }) {
 
   // ---- ADMIN: Proxy enroll user in activity ----
   const adminEnrollForUser = useCallback(async (targetUserId, targetUserName, activity) => {
-    if (activity.enrolledUsers.some(e => e.name === targetUserName)) return { ok: false, msg: `${targetUserName}已报名该活动` };
+    if (activity.enrolledUsers.some(e => e.user_id === targetUserId || e.name === targetUserName)) return { ok: false, msg: `${targetUserName}已报名该活动` };
     if (activity.enrolledUsers.length >= activity.spots) return { ok: false, msg: "名额已满" };
     if (activity.cost > 0) {
       const { data: u } = await supabase.from("users").select("coins").eq("id", targetUserId).single();
@@ -578,7 +663,7 @@ export function StoreProvider({ children }) {
       await supabase.from("users").update({ coins: u.coins - activity.cost }).eq("id", targetUserId);
       await addTx(`管理员代报名: ${activity.title}`, -activity.cost, "coin", targetUserId);
     }
-    const newEnrolled = [...activity.enrolledUsers, { name: targetUserName }];
+    const newEnrolled = [...activity.enrolledUsers, { user_id: targetUserId, name: targetUserName, enrolled_at: new Date().toISOString(), cost: activity.cost }];
     await supabase.from("activities").update({ enrolled_users: newEnrolled }).eq("id", activity.id);
     await refetchActivities();
     await refetchUsers();
@@ -613,11 +698,11 @@ export function StoreProvider({ children }) {
     userName, userAvatar, userAvatarColor, userId,
     openWeekendDates, getSlotOccupancy, totalTables, isCoachSlotBooked,
     setResultModal, setUserName, setUserAvatar, randomizeAvatar,
-    bookCoachCoin, bookCoachCard, buyCourse, joinActivity, bookTable, cancelBooking,
-    recharge, transfer, addPost, likePost, votePost,
+    bookCoachCoin, bookCoachCard, buyCourse, joinActivity, cancelActivityEnrollment, bookTable, cancelBooking,
+    recharge, transfer, addPost, editPost, deletePost, likePost, votePost, fetchComments, addComment,
     approveBooking, rejectBooking, distributeReward,
     adminSaveCoach, adminDeleteCoach, adminSaveCourse, adminDeleteCourse,
-    adminSaveActivity, adminDeleteActivity, adminCancelActivity, adminSaveTable, adminDeleteTable,
+    adminSaveActivity, adminDeleteActivity, adminCancelActivity, adminCancelUserEnrollment, adminSaveTable, adminDeleteTable,
     adminToggleTableSlot, adminToggleWeekendDate, adminDeletePost, adminPinPost,
     adminUpdateUser, adminAdjustCoins, adminCreateCard, adminUpdateCardRemaining, adminGetUserCards,
     adminGetUserTransactions, adminCreateUser, adminBookForUser, adminEnrollForUser,
