@@ -97,7 +97,7 @@ const CoachMgmt = () => {
                         <span style={{ fontWeight: 600 }}>{c.name}</span></div></td>
                     <td style={st.td}><span style={st.badge(C.primary)}>{c.level}</span></td>
                     <td style={st.td}>{c.specialties.join(", ")}</td>
-                    <td style={st.td}><span style={{ color: C.secondary, fontWeight: 700 }}>{c.price} 🪙</span></td>
+                    <td style={st.td}><span style={{ color: C.secondary, fontWeight: 700 }}>¥{c.price}/时</span></td>
                     <td style={st.td}><span style={st.badge(c.status === "在职" ? C.success : C.warning)}>{c.status}</span></td>
                     <td style={st.td}><div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                         <PBtn small secondary onClick={() => openEdit(c)}>编辑</PBtn>
@@ -197,7 +197,7 @@ const CourseMgmt = () => {
                         {c.coverImage ? <img src={c.coverImage} style={{ width: 48, height: 36, borderRadius: 6, objectFit: "cover" }} /> : <span style={{ fontSize: 24 }}>{c.emoji}</span>}
                         <div><span style={{ fontWeight: 600 }}>{c.title}</span><div style={{ fontSize: 12, color: C.textLight }}>{c.desc}</div></div></div></td>
                     <td style={st.td}>{c.lessons}</td>
-                    <td style={st.td}><span style={{ color: C.secondary, fontWeight: 700 }}>{c.price} 🪙</span></td>
+                    <td style={st.td}><span style={{ color: C.secondary, fontWeight: 700 }}>¥{c.price}</span></td>
                     <td style={st.td}>{c.enrolled}人</td>
                     <td style={st.td}><span style={st.badge(c.status === "上架" ? C.success : C.warning)}>{c.status}</span></td>
                     <td style={st.td}><div style={{ display: "flex", gap: 6 }}><PBtn small secondary onClick={() => setModal({ ...c })}>编辑</PBtn><PBtn small danger onClick={() => del(c.id)}>删除</PBtn></div></td>
@@ -309,7 +309,7 @@ const ActivityMgmt = () => {
                     {modal?.tableId && <Field label="占用时段"><input style={st.input} value={modal?.tableSlot || ""} onChange={e => setModal(m => ({ ...m, tableSlot: e.target.value }))} /></Field>}
                 </div>
                 {modal?.type === "match" && <div style={{ flex: 1 }}>
-                    <Field label="🏆 奖励设置">{(modal?._rewards || []).map((r, i) => <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}><span style={{ fontSize: 13, fontWeight: 600, width: 40 }}>第{r.rank}名</span><input type="number" style={{ ...st.input, width: 100 }} value={r.amount} onChange={e => { const rw = [...(modal._rewards || [])]; rw[i] = { ...rw[i], amount: Number(e.target.value) }; setModal(m => ({ ...m, _rewards: rw })); }} /><span style={{ fontSize: 12, color: C.textLight }}>Coin</span><PBtn small danger onClick={() => { const rw = [...(modal._rewards || [])]; rw.splice(i, 1); setModal(m => ({ ...m, _rewards: rw })); }}>✕</PBtn></div>)}<PBtn small secondary onClick={() => { const rw = [...(modal?._rewards || [])]; rw.push({ rank: rw.length + 1, amount: 50 }); setModal(m => ({ ...m, _rewards: rw })); }}>+ 添加名次</PBtn></Field>
+                    <Field label="🏆 奖励设置">{(modal?._rewards || []).map((r, i) => <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}><span style={{ fontSize: 13, fontWeight: 600, width: 40 }}>第{r.rank}名</span><input type="number" style={{ ...st.input, width: 100 }} value={r.amount} onChange={e => { const rw = [...(modal._rewards || [])]; rw[i] = { ...rw[i], amount: Number(e.target.value) }; setModal(m => ({ ...m, _rewards: rw })); }} /><span style={{ fontSize: 12, color: C.textLight }}>元</span><PBtn small danger onClick={() => { const rw = [...(modal._rewards || [])]; rw.splice(i, 1); setModal(m => ({ ...m, _rewards: rw })); }}>✕</PBtn></div>)}<PBtn small secondary onClick={() => { const rw = [...(modal?._rewards || [])]; rw.push({ rank: rw.length + 1, amount: 50 }); setModal(m => ({ ...m, _rewards: rw })); }}>+ 添加名次</PBtn></Field>
                 </div>}
             </div>
             <div style={{ display: "flex", gap: 10, marginTop: 8 }}><PBtn secondary onClick={() => setModal(null)}>取消</PBtn><PBtn onClick={save}>保存</PBtn></div>
@@ -326,7 +326,7 @@ const ActivityMgmt = () => {
                         <tbody>{enrollModal.enrolledUsers.map((eu, i) => <tr key={i}>
                             <td style={st.td}><span style={{ fontWeight: 600 }}>{eu.name}</span></td>
                             <td style={st.td}><span style={{ fontSize: 12, color: C.textLight }}>{eu.enrolled_at ? new Date(eu.enrolled_at).toLocaleString("zh-CN") : "-"}</span></td>
-                            <td style={st.td}><span style={{ color: C.secondary, fontWeight: 600 }}>{eu.cost != null ? eu.cost : enrollModal.cost} 🪙</span></td>
+                            <td style={st.td}><span style={{ color: C.secondary, fontWeight: 600 }}>{eu.cost != null ? eu.cost : enrollModal.cost > 0 ? `¥${eu.cost != null ? eu.cost : enrollModal.cost}` : "免费"}</span></td>
                             <td style={st.td}><PBtn small danger onClick={() => doAdminCancel(enrollModal, eu.user_id)}>取消报名</PBtn></td>
                         </tr>)}</tbody>
                     </table>
@@ -337,10 +337,10 @@ const ActivityMgmt = () => {
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     <select style={{ ...st.input, width: 200 }} value={enrollUserId} onChange={e => setEnrollUserId(e.target.value)}>
                         <option value="">选择会员</option>
-                        {allUsers.filter(u => !enrollModal?.enrolledUsers?.some(e => e.user_id === u.id || e.name === u.nickname)).map(u => <option key={u.id} value={u.id}>{u.nickname} ({u.coins} 🪙)</option>)}
+                        {allUsers.filter(u => !enrollModal?.enrolledUsers?.some(e => e.user_id === u.id || e.name === u.nickname)).map(u => <option key={u.id} value={u.id}>{u.nickname}</option>)}
                     </select>
                     <PBtn small onClick={doAdminEnroll}>确认报名</PBtn>
-                    <span style={{ fontSize: 12, color: C.textLight }}>将自动扣除 {enrollModal?.cost || 0} Coin</span>
+                    <span style={{ fontSize: 12, color: C.textLight }}>将收取 ¥{enrollModal?.cost || 0}</span>
                 </div>
             </div>
             {enrollModal?.status !== "已取消" && <div style={{ borderTop: `1px solid ${C.bg}`, paddingTop: 12, marginTop: 12 }}>
@@ -351,7 +351,7 @@ const ActivityMgmt = () => {
         {/* Reward distribution modal */}
         <Modal show={!!rewardModal} onClose={() => setRewardModal(null)} title="🏆 发放奖励">
             <p style={{ fontSize: 14, color: C.text, marginBottom: 16 }}>{rewardModal?.title}</p>
-            {rewardModal?.rewards.map(r => <div key={r.rank} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}><span style={{ fontWeight: 700, width: 60 }}>第{r.rank}名</span><select style={{ ...st.input, width: 140 }} value={assignments[r.rank] || ""} onChange={e => setAssignments(a => ({ ...a, [r.rank]: e.target.value }))}><option value="">选择</option>{rewardModal.enrolledUsers.map(u => <option key={u.name} value={u.name}>{u.name}</option>)}</select><span style={{ color: C.warning, fontWeight: 600 }}>{r.amount} 🪙</span></div>)}
+            {rewardModal?.rewards.map(r => <div key={r.rank} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}><span style={{ fontWeight: 700, width: 60 }}>第{r.rank}名</span><select style={{ ...st.input, width: 140 }} value={assignments[r.rank] || ""} onChange={e => setAssignments(a => ({ ...a, [r.rank]: e.target.value }))}><option value="">选择</option>{rewardModal.enrolledUsers.map(u => <option key={u.name} value={u.name}>{u.name}</option>)}</select><span style={{ color: C.warning, fontWeight: 600 }}>¥{r.amount}</span></div>)}
             <div style={{ display: "flex", gap: 10, marginTop: 16 }}><PBtn secondary onClick={() => setRewardModal(null)}>取消</PBtn><PBtn onClick={doDistribute}>确认发放</PBtn></div>
         </Modal>
     </div>;
@@ -388,7 +388,7 @@ const TableMgmt = () => {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><h2 style={{ margin: 0, color: C.text }}>🏟️ 球台管理</h2><PBtn onClick={() => setModal({ ...empty })}>+ 添加球台</PBtn></div>
         <div style={{ background: C.card, borderRadius: 12, overflow: "auto", boxShadow: "0 2px 12px rgba(59,45,139,0.06)", marginBottom: 20 }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr><th style={st.th}>球台</th><th style={st.th}>价格/时</th><th style={st.th}>状态</th><th style={st.th}>操作</th></tr></thead>
-                <tbody>{tables.map(t => <tr key={t.id}><td style={st.td}><span style={{ fontWeight: 600 }}>{t.name}</span></td><td style={st.td}><span style={{ color: C.secondary, fontWeight: 700 }}>{t.pricePerHour} 🪙</span></td><td style={st.td}><span style={st.badge(t.status === "正常" ? C.success : C.danger)}>{t.status}</span></td><td style={st.td}><div style={{ display: "flex", gap: 6 }}><PBtn small secondary onClick={() => openEdit(t)}>编辑</PBtn><PBtn small danger onClick={() => del(t.id)}>删除</PBtn></div></td></tr>)}</tbody>
+                <tbody>{tables.map(t => <tr key={t.id}><td style={st.td}><span style={{ fontWeight: 600 }}>{t.name}</span></td><td style={st.td}><span style={{ color: C.secondary, fontWeight: 700 }}>¥{t.pricePerHour}/时</span></td><td style={st.td}><span style={st.badge(t.status === "正常" ? C.success : C.danger)}>{t.status}</span></td><td style={st.td}><div style={{ display: "flex", gap: 6 }}><PBtn small secondary onClick={() => openEdit(t)}>编辑</PBtn><PBtn small danger onClick={() => del(t.id)}>删除</PBtn></div></td></tr>)}</tbody>
             </table>
         </div>
         <h3 style={{ color: C.text, margin: "0 0 12px" }}>📅 日历 — {calDate} (0.5h/格)</h3>
@@ -501,7 +501,7 @@ const BookingMgmt = () => {
 
     const proxyDates = useMemo(() => getNext7Days(), []);
 
-    const startProxyBook = () => setProxyBook({ step: 1, userId: null, userName: "", coach: null, date: "", slots: [], payMethod: "coin", cardId: null });
+    const startProxyBook = () => setProxyBook({ step: 1, userId: null, userName: "", coach: null, date: "", slots: [], payMethod: "wechat", cardId: null });
     const startProxyEnroll = () => setProxyEnroll({ step: 1, userId: null, userName: "", activity: null });
 
     const selectProxyUser = async (uid, forBook) => {
@@ -587,7 +587,7 @@ const BookingMgmt = () => {
                         <td style={st.td}><div style={{ fontSize: 12 }}>{b.detail}</div></td>
                         <td style={st.td}>{b.duration}h</td>
                         <td style={st.td}>{b.payMethod}</td>
-                        <td style={st.td}><span style={{ color: C.secondary, fontWeight: 600 }}>{b.payMethod === "Coin" ? `${b.cost} 🪙` : `${b.cardDeduct} 次`}</span></td>
+                        <td style={st.td}><span style={{ color: C.secondary, fontWeight: 600 }}>{b.payMethod === "微信支付" ? `¥${b.cost}` : `${b.cardDeduct} 次`}</span></td>
                         <td style={st.td}>{b.status === "待确认" ? <div style={{ display: "flex", gap: 4 }}><PBtn small onClick={() => approveBooking(b.id)}>✓</PBtn><PBtn small danger onClick={() => rejectBooking(b.id)}>✗</PBtn></div> : "-"}</td>
                     </tr>)}</tbody>
                 </table>
@@ -606,11 +606,11 @@ const BookingMgmt = () => {
         {/* Proxy book coach modal */}
         <Modal show={!!proxyBook} onClose={() => setProxyBook(null)} title="👤 帮用户约课" wide>
             {proxyBook?.step === 1 && <div>
-                <Field label="选择会员"><select style={st.input} value="" onChange={e => selectProxyUser(e.target.value, true)}><option value="">请选择会员</option>{allUsers.map(u => <option key={u.id} value={u.id}>{u.nickname} ({u.coins}🪙)</option>)}</select></Field>
+                <Field label="选择会员"><select style={st.input} value="" onChange={e => selectProxyUser(e.target.value, true)}><option value="">请选择会员</option>{allUsers.map(u => <option key={u.id} value={u.id}>{u.nickname}</option>)}</select></Field>
             </div>}
             {proxyBook?.step === 2 && <div>
                 <div style={{ marginBottom: 12, fontSize: 13 }}>会员: <b>{proxyBook.userName}</b></div>
-                <Field label="选择教练"><select style={st.input} value={proxyBook.coach?.id || ""} onChange={e => { const c = coaches.find(x => x.id === Number(e.target.value)); setProxyBook(p => ({ ...p, coach: c, step: c ? 3 : 2 })); }}><option value="">请选择</option>{coaches.filter(c => c.status === "在职").map(c => <option key={c.id} value={c.id}>{c.name} ({c.price}🪙/h)</option>)}</select></Field>
+                <Field label="选择教练"><select style={st.input} value={proxyBook.coach?.id || ""} onChange={e => { const c = coaches.find(x => x.id === Number(e.target.value)); setProxyBook(p => ({ ...p, coach: c, step: c ? 3 : 2 })); }}><option value="">请选择</option>{coaches.filter(c => c.status === "在职").map(c => <option key={c.id} value={c.id}>{c.name} (¥{c.price}/h)</option>)}</select></Field>
             </div>}
             {proxyBook?.step >= 3 && <div>
                 <div style={{ marginBottom: 8, fontSize: 13 }}>会员: <b>{proxyBook.userName}</b> · 教练: <b>{proxyBook.coach?.name}</b></div>
@@ -628,11 +628,11 @@ const BookingMgmt = () => {
                     })}</div>
                 </Field>}
                 <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-                    <Field label="支付方式"><select style={st.input} value={proxyBook.payMethod} onChange={e => setProxyBook(p => ({ ...p, payMethod: e.target.value }))}><option value="coin">Coin</option><option value="card">课程卡</option></select></Field>
+                    <Field label="支付方式"><select style={st.input} value={proxyBook.payMethod} onChange={e => setProxyBook(p => ({ ...p, payMethod: e.target.value }))}><option value="wechat">微信支付</option><option value="card">课程卡</option></select></Field>
                     {proxyBook.payMethod === "card" && <Field label="选择课程卡"><select style={st.input} value={proxyBook.cardId || ""} onChange={e => setProxyBook(p => ({ ...p, cardId: Number(e.target.value) }))}><option value="">请选择</option>{proxyCards.filter(c => c.remaining > 0).map(c => <option key={c.id} value={c.id}>{c.name} (剩{c.remaining}次)</option>)}</select></Field>}
                 </div>
                 {proxyBook.slots.length > 0 && <div style={{ marginTop: 12, padding: "10px 14px", background: C.primary + "08", borderRadius: 10, fontSize: 13 }}>
-                    确认: 为 <b>{proxyBook.userName}</b> 预约 <b>{proxyBook.coach?.name}</b> {proxyBook.date} {slotsRange(proxyBook.slots)} ({slotsDuration(proxyBook.slots)}h) · {proxyBook.payMethod === "coin" ? `${Math.round(proxyBook.coach?.price * slotsDuration(proxyBook.slots))} 🪙` : "课程卡扣次"}
+                    确认: 为 <b>{proxyBook.userName}</b> 预约 <b>{proxyBook.coach?.name}</b> {proxyBook.date} {slotsRange(proxyBook.slots)} ({slotsDuration(proxyBook.slots)}h) · {proxyBook.payMethod === "wechat" ? `¥${Math.round(proxyBook.coach?.price * slotsDuration(proxyBook.slots))}` : "课程卡扣次"}
                 </div>}
             </div>}
             <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
@@ -643,19 +643,19 @@ const BookingMgmt = () => {
 
         {/* Proxy enroll activity modal */}
         <Modal show={!!proxyEnroll} onClose={() => setProxyEnroll(null)} title="👤 帮用户报名活动">
-            {proxyEnroll?.step === 1 && <Field label="选择会员"><select style={st.input} value="" onChange={e => selectProxyUser(e.target.value, false)}><option value="">请选择会员</option>{allUsers.map(u => <option key={u.id} value={u.id}>{u.nickname} ({u.coins}🪙)</option>)}</select></Field>}
+            {proxyEnroll?.step === 1 && <Field label="选择会员"><select style={st.input} value="" onChange={e => selectProxyUser(e.target.value, false)}><option value="">请选择会员</option>{allUsers.map(u => <option key={u.id} value={u.id}>{u.nickname}</option>)}</select></Field>}
             {proxyEnroll?.step === 2 && <div>
                 <div style={{ marginBottom: 12, fontSize: 13 }}>会员: <b>{proxyEnroll.userName}</b></div>
                 <Field label="选择活动">
                     {activities.filter(a => a.status !== "已取消" && a.enrolledUsers.length < a.spots).map(a => <div key={a.id} onClick={() => setProxyEnroll(p => ({ ...p, activity: a }))} style={{ padding: "10px 14px", marginBottom: 6, borderRadius: 10, cursor: "pointer", border: proxyEnroll.activity?.id === a.id ? `2px solid ${C.primary}` : "2px solid #f0f0f0", background: proxyEnroll.activity?.id === a.id ? C.primary + "08" : "#fff" }}>
                         <div style={{ fontWeight: 600, fontSize: 14 }}>{a.emoji} {a.title}</div>
-                        <div style={{ fontSize: 12, color: C.textLight }}>{a.date} {a.time} · {a.enrolledUsers.length}/{a.spots}人 · {a.cost}🪙</div>
+                        <div style={{ fontSize: 12, color: C.textLight }}>{a.date} {a.time} · {a.enrolledUsers.length}/{a.spots}人 · {a.cost > 0 ? `¥${a.cost}` : "免费"}</div>
                     </div>)}
                 </Field>
             </div>}
             <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
                 <PBtn secondary onClick={() => setProxyEnroll(null)}>取消</PBtn>
-                {proxyEnroll?.activity && <PBtn onClick={doProxyEnroll} disabled={proxySaving}>{proxySaving ? "报名中..." : `确认报名 (${proxyEnroll.activity.cost}🪙)`}</PBtn>}
+                {proxyEnroll?.activity && <PBtn onClick={doProxyEnroll} disabled={proxySaving}>{proxySaving ? "报名中..." : `确认报名 (¥${proxyEnroll.activity.cost})`}</PBtn>}
             </div>
         </Modal>
 
@@ -669,7 +669,7 @@ const BookingMgmt = () => {
 
 // ======= MEMBER MANAGEMENT (with add user + detail tabs) =======
 const MemberMgmt = () => {
-    const { allUsers, courses, adminUpdateUser, adminAdjustCoins, adminCreateCard, adminUpdateCardRemaining, adminGetUserCards, adminGetUserTransactions, adminCreateUser, refetchUsers } = useStore();
+    const { allUsers, courses, adminUpdateUser, adminCreateCard, adminUpdateCardRemaining, adminGetUserCards, adminGetUserTransactions, adminCreateUser, refetchUsers } = useStore();
     const [addModal, setAddModal] = useState(null);
     const [selectedUser, setSelectedUser] = useState(null);
     const [detailTab, setDetailTab] = useState("basic");
@@ -677,7 +677,7 @@ const MemberMgmt = () => {
     const [userCards, setUserCards] = useState([]);
     const [txLoading, setTxLoading] = useState(false);
     const [search, setSearch] = useState("");
-    const [coinAdjust, setCoinAdjust] = useState({ amount: 0, reason: "" });
+
     const [newCard, setNewCard] = useState(null);
 
     const fmtDate = (d) => { if (!d) return "-"; const dt = new Date(d); return `${dt.getMonth() + 1}/${dt.getDate()} ${dt.getHours()}:${String(dt.getMinutes()).padStart(2, "0")}`; };
@@ -686,23 +686,13 @@ const MemberMgmt = () => {
     const openUser = async (u) => {
         setSelectedUser(u);
         setDetailTab("basic");
-        setCoinAdjust({ amount: 0, reason: "" });
+
         setNewCard(null);
         setTxLoading(true);
         const [cards, txs] = await Promise.all([adminGetUserCards(u.id), adminGetUserTransactions(u.id)]);
         setUserCards(cards);
         setUserTxs(txs);
         setTxLoading(false);
-    };
-
-    const doAdjustCoins = async () => {
-        if (!coinAdjust.amount || !coinAdjust.reason) return;
-        await adminAdjustCoins(selectedUser.id, coinAdjust.amount, coinAdjust.reason);
-        setCoinAdjust({ amount: 0, reason: "" });
-        const updated = allUsers.find(u => u.id === selectedUser.id);
-        if (updated) setSelectedUser(updated);
-        const txs = await adminGetUserTransactions(selectedUser.id);
-        setUserTxs(txs);
     };
 
     const doCreateCard = async () => {
@@ -723,19 +713,17 @@ const MemberMgmt = () => {
 
     const doAddUser = async () => {
         if (!addModal?.nickname) return;
-        await adminCreateUser(addModal.nickname, addModal.coins || 500);
+        await adminCreateUser(addModal.nickname);
         setAddModal(null);
     };
 
     const filteredUsers = useMemo(() => allUsers.filter(u => !search || u.nickname.toLowerCase().includes(search.toLowerCase())), [allUsers, search]);
 
-    const rechargeTxs = useMemo(() => userTxs.filter(t => t.amount > 0), [userTxs]);
-    const consumeTxs = useMemo(() => userTxs.filter(t => t.amount < 0), [userTxs]);
+
 
     const detailTabs = [
         { id: "basic", label: "基本信息" },
-        { id: "recharge", label: `充值记录 (${rechargeTxs.length})` },
-        { id: "consume", label: `消费记录 (${consumeTxs.length})` },
+        { id: "transactions", label: `交易记录 (${userTxs.length})` },
         { id: "cards", label: `课程卡 (${userCards.length})` },
     ];
 
@@ -749,7 +737,6 @@ const MemberMgmt = () => {
                     <h3 style={{ margin: 0, color: C.text }}>{selectedUser.nickname}</h3>
                     <div style={{ fontSize: 13, color: C.textLight, marginTop: 2 }}>ID: {selectedUser.id}</div>
                     <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
-                        <span style={{ fontSize: 14, fontWeight: 700, color: C.secondary }}>🪙 {selectedUser.coins} Coin</span>
                         <span style={{ fontSize: 12, color: C.textLight }}>注册: {fmtDateFull(selectedUser.createdAt)}</span>
                     </div>
                 </div>
@@ -760,38 +747,23 @@ const MemberMgmt = () => {
         {txLoading ? <Spinner /> : <>
             {/* Basic Info Tab */}
             {detailTab === "basic" && <div style={{ background: C.card, borderRadius: 14, padding: 20, boxShadow: "0 2px 12px rgba(59,45,139,0.06)" }}>
-                <h4 style={{ margin: "0 0 12px", color: C.text }}>💰 Coin 调整</h4>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <input type="number" style={{ ...st.input, width: 100 }} placeholder="数额" value={coinAdjust.amount || ""} onChange={e => setCoinAdjust(v => ({ ...v, amount: Number(e.target.value) }))} />
-                    <input style={{ ...st.input, flex: 1, minWidth: 120 }} placeholder="原因" value={coinAdjust.reason} onChange={e => setCoinAdjust(v => ({ ...v, reason: e.target.value }))} />
-                    <PBtn small onClick={doAdjustCoins}>执行调整</PBtn>
+                <h4 style={{ margin: "0 0 12px", color: C.text }}>会员信息</h4>
+                <div style={{ fontSize: 14, color: C.text, lineHeight: 2 }}>
+                    <div>ID: <b>{selectedUser.id}</b></div>
+                    <div>昵称: <b>{selectedUser.nickname}</b></div>
+                    <div>注册时间: <b>{fmtDateFull(selectedUser.createdAt)}</b></div>
                 </div>
-                <p style={{ fontSize: 12, color: C.textLight, margin: "6px 0 0" }}>正数=充值，负数=扣除</p>
             </div>}
 
-            {/* Recharge records tab */}
-            {detailTab === "recharge" && <div style={{ background: C.card, borderRadius: 14, padding: 16, boxShadow: "0 2px 12px rgba(59,45,139,0.06)" }}>
-                {rechargeTxs.length === 0 ? <div style={{ color: C.textLight, textAlign: "center", padding: 24 }}>暂无充值记录</div> :
+            {/* All transactions tab */}
+            {detailTab === "transactions" && <div style={{ background: C.card, borderRadius: 14, padding: 16, boxShadow: "0 2px 12px rgba(59,45,139,0.06)" }}>
+                {userTxs.length === 0 ? <div style={{ color: C.textLight, textAlign: "center", padding: 24 }}>暂无交易记录</div> :
                     <table style={{ width: "100%", borderCollapse: "collapse" }}>
                         <thead><tr><th style={st.th}>描述</th><th style={st.th}>金额</th><th style={st.th}>类型</th><th style={st.th}>时间</th></tr></thead>
-                        <tbody>{rechargeTxs.map(t => <tr key={t.id}>
+                        <tbody>{userTxs.map(t => <tr key={t.id}>
                             <td style={st.td}>{t.desc}</td>
-                            <td style={st.td}><span style={{ color: C.success, fontWeight: 700 }}>+{t.amount}</span></td>
-                            <td style={st.td}><span style={st.badge(C.success)}>{t.payType}</span></td>
-                            <td style={{ ...st.td, fontSize: 12, color: C.textLight }}>{t.time}</td>
-                        </tr>)}</tbody>
-                    </table>}
-            </div>}
-
-            {/* Consumption records tab */}
-            {detailTab === "consume" && <div style={{ background: C.card, borderRadius: 14, padding: 16, boxShadow: "0 2px 12px rgba(59,45,139,0.06)" }}>
-                {consumeTxs.length === 0 ? <div style={{ color: C.textLight, textAlign: "center", padding: 24 }}>暂无消费记录</div> :
-                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                        <thead><tr><th style={st.th}>描述</th><th style={st.th}>金额</th><th style={st.th}>类型</th><th style={st.th}>时间</th></tr></thead>
-                        <tbody>{consumeTxs.map(t => <tr key={t.id}>
-                            <td style={st.td}>{t.desc}</td>
-                            <td style={st.td}><span style={{ color: C.danger, fontWeight: 700 }}>{t.amount}</span></td>
-                            <td style={st.td}><span style={st.badge(C.warning)}>{t.payType}</span></td>
+                            <td style={st.td}><span style={{ color: t.amount > 0 ? C.success : C.danger, fontWeight: 700 }}>{t.amount > 0 ? "+" : ""}{t.payType === "course_card" ? t.amount + " 次" : "¥" + Math.abs(t.amount)}</span></td>
+                            <td style={st.td}><span style={st.badge(t.amount > 0 ? C.success : C.warning)}>{t.payType}</span></td>
                             <td style={{ ...st.td, fontSize: 12, color: C.textLight }}>{t.time}</td>
                         </tr>)}</tbody>
                     </table>}
@@ -832,16 +804,15 @@ const MemberMgmt = () => {
     return <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <h2 style={{ margin: 0, color: C.text }}>👥 会员管理</h2>
-            <PBtn onClick={() => setAddModal({ nickname: "", coins: 500 })}>添加会员</PBtn>
+            <PBtn onClick={() => setAddModal({ nickname: "" })}>添加会员</PBtn>
         </div>
         <input style={{ ...st.input, marginBottom: 12, maxWidth: 300 }} placeholder="🔍 搜索昵称..." value={search} onChange={e => setSearch(e.target.value)} />
         <div style={{ background: C.card, borderRadius: 12, overflow: "auto", boxShadow: "0 2px 12px rgba(59,45,139,0.06)" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 500 }}>
-                <thead><tr><th style={st.th}>头像</th><th style={st.th}>昵称</th><th style={st.th}>Coin余额</th><th style={st.th}>注册时间</th><th style={st.th}>操作</th></tr></thead>
+                <thead><tr><th style={st.th}>头像</th><th style={st.th}>昵称</th><th style={st.th}>注册时间</th><th style={st.th}>操作</th></tr></thead>
                 <tbody>{filteredUsers.map(u => <tr key={u.id} style={{ cursor: "pointer" }} onClick={() => openUser(u)}>
                     <td style={st.td}><div style={{ width: 32, height: 32, borderRadius: "50%", background: u.avatarUrl ? `url(${u.avatarUrl}) center/cover` : u.avatarColor || "#6C5CE7", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#fff", fontWeight: 700 }}>{!u.avatarUrl && (u.nickname?.[0] || "?")}</div></td>
                     <td style={st.td}><span style={{ fontWeight: 600 }}>{u.nickname}</span></td>
-                    <td style={st.td}><span style={{ color: C.secondary, fontWeight: 700 }}>{u.coins} 🪙</span></td>
                     <td style={{ ...st.td, fontSize: 12, color: C.textLight }}>{fmtDateFull(u.createdAt)}</td>
                     <td style={st.td}><PBtn small secondary onClick={e => { e.stopPropagation(); openUser(u); }}>查看详情</PBtn></td>
                 </tr>)}</tbody>
@@ -849,7 +820,7 @@ const MemberMgmt = () => {
         </div>
         <Modal show={!!addModal} onClose={() => setAddModal(null)} title="添加会员">
             <Field label="昵称"><input style={st.input} value={addModal?.nickname || ""} onChange={e => setAddModal(m => ({ ...m, nickname: e.target.value }))} /></Field>
-            <Field label="初始Coin"><input type="number" style={st.input} value={addModal?.coins || ""} onChange={e => setAddModal(m => ({ ...m, coins: Number(e.target.value) }))} /></Field>
+
             <div style={{ display: "flex", gap: 10, marginTop: 8 }}><PBtn secondary onClick={() => setAddModal(null)}>取消</PBtn><PBtn onClick={doAddUser}>创建</PBtn></div>
         </Modal>
     </div>;

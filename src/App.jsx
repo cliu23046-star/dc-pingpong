@@ -19,11 +19,11 @@ const ResultModal = ({ modal, onClose }) => {
 
 // ======= COACH PAGE =======
 const CoachPage = () => {
-  const { coaches, courseCards, bookCoachCoin, bookCoachCard, HOURS, DEFAULT_COACH_HOURS, slotEnd, slotsRange, slotsDuration, getNext7Days, getSlotOccupancy, totalTables, isCoachSlotBooked, isSlotPastCutoff } = useStore();
+  const { coaches, courseCards, bookCoachWechat, bookCoachCard, HOURS, DEFAULT_COACH_HOURS, slotEnd, slotsRange, slotsDuration, getNext7Days, getSlotOccupancy, totalTables, isCoachSlotBooked, isSlotPastCutoff } = useStore();
   const [selectedCoach, setSelectedCoach] = useState(null);
   const [selectedDay, setSelectedDay] = useState(null);
   const [selectedSlots, setSelectedSlots] = useState([]);
-  const [payMethod, setPayMethod] = useState("coin");
+  const [payMethod, setPayMethod] = useState("wechat");
   const [payCardId, setPayCardId] = useState(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState(null);
@@ -68,7 +68,7 @@ const CoachPage = () => {
 
   const doBook = () => {
     if (duration < 1) { setError("最低预约1小时（请至少选2个连续时段）"); return; }
-    if (payMethod === "coin") bookCoachCoin(selectedCoach, selectedSlots, dateKey);
+    if (payMethod === "wechat") bookCoachWechat(selectedCoach, selectedSlots, dateKey);
     else bookCoachCard(selectedCoach, selectedSlots, dateKey, payCardId);
     setShowConfirm(false); setSelectedSlots([]);
   };
@@ -83,7 +83,7 @@ const CoachPage = () => {
     <div style={{ background: COLORS.card, borderRadius: 16, padding: 20, boxShadow: "0 2px 12px rgba(59,45,139,0.06)" }}>
       <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 16 }}>
         <div style={{ width: 64, height: 64, borderRadius: "50%", background: selectedCoach.avatar ? `url(${selectedCoach.avatar}) center/cover` : "#D1D5DB", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, flexShrink: 0, overflow: "hidden" }}>{!selectedCoach.avatar && "🏓"}</div>
-        <div><h3 style={{ margin: 0, color: COLORS.text }}>{selectedCoach.name}</h3><Pill color={COLORS.primary}>{selectedCoach.level}</Pill><div style={{ fontSize: 13, color: COLORS.textLight, marginTop: 4 }}>擅长：{selectedCoach.specialties.join(", ")}</div><div style={{ fontSize: 13, color: COLORS.secondary, fontWeight: 600, marginTop: 2 }}>{selectedCoach.price} 🪙/小时</div></div>
+        <div><h3 style={{ margin: 0, color: COLORS.text }}>{selectedCoach.name}</h3><Pill color={COLORS.primary}>{selectedCoach.level}</Pill><div style={{ fontSize: 13, color: COLORS.textLight, marginTop: 4 }}>擅长：{selectedCoach.specialties.join(", ")}</div><div style={{ fontSize: 13, color: COLORS.secondary, fontWeight: 600, marginTop: 2 }}>¥{selectedCoach.price}/小时</div></div>
       </div>
       <div style={{ fontWeight: 700, fontSize: 15, color: COLORS.text, marginBottom: 8 }}>📅 选择日期</div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
@@ -112,13 +112,13 @@ const CoachPage = () => {
           <span style={{ fontWeight: 700, color: COLORS.text }}>已选：</span>
           <span style={{ color: COLORS.secondary, fontWeight: 600 }}>{range}</span>
           <span style={{ color: COLORS.textLight, marginLeft: 8 }}>共 {duration} 小时</span>
-          <span style={{ color: COLORS.secondary, fontWeight: 700, marginLeft: 8 }}>{cost} 🪙</span>
+          <span style={{ color: COLORS.secondary, fontWeight: 700, marginLeft: 8 }}>¥{cost}</span>
         </div>}
       </>}
       {selectedSlots.length > 0 && <>
         <div style={{ fontWeight: 700, fontSize: 15, color: COLORS.text, marginBottom: 8 }}>💰 支付方式</div>
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-          <button onClick={() => setPayMethod("coin")} style={{ flex: 1, padding: "12px", borderRadius: 10, border: payMethod === "coin" ? `2px solid ${COLORS.secondary}` : "2px solid #eee", background: payMethod === "coin" ? COLORS.secondary + "10" : "#fff", cursor: "pointer", textAlign: "center" }}><div style={{ fontWeight: 700, color: COLORS.text }}>🪙 Coin 支付</div><div style={{ fontSize: 13, color: COLORS.textLight }}>{cost} Coin</div></button>
+          <button onClick={() => setPayMethod("wechat")} style={{ flex: 1, padding: "12px", borderRadius: 10, border: payMethod === "wechat" ? `2px solid ${COLORS.secondary}` : "2px solid #eee", background: payMethod === "wechat" ? COLORS.secondary + "10" : "#fff", cursor: "pointer", textAlign: "center" }}><div style={{ fontWeight: 700, color: COLORS.text }}>💳 微信支付</div><div style={{ fontSize: 13, color: COLORS.textLight }}>¥{cost}</div></button>
           <button onClick={() => { setPayMethod("card"); if (usableCards.length > 0) setPayCardId(usableCards[0].id); }} style={{ flex: 1, padding: "12px", borderRadius: 10, border: payMethod === "card" ? `2px solid ${COLORS.secondary}` : "2px solid #eee", background: payMethod === "card" ? COLORS.secondary + "10" : "#fff", cursor: "pointer", textAlign: "center", opacity: usableCards.length === 0 ? 0.4 : 1 }} disabled={usableCards.length === 0}><div style={{ fontWeight: 700, color: COLORS.text }}>🎫 课程卡</div><div style={{ fontSize: 13, color: COLORS.textLight }}>{usableCards.length > 0 ? `扣 ${cardDeduct} 次` : "无可用"}</div></button>
         </div>
         {payMethod === "card" && usableCards.length > 0 && <div style={{ marginBottom: 16 }}>{usableCards.map(c => <button key={c.id} onClick={() => setPayCardId(c.id)} style={{ display: "block", width: "100%", padding: "10px", borderRadius: 8, border: payCardId === c.id ? `2px solid ${COLORS.secondary}` : "1px solid #eee", background: payCardId === c.id ? "#FFF0F5" : "#fff", cursor: "pointer", marginBottom: 6, textAlign: "left" }}><span style={{ fontWeight: 600 }}>{c.name}</span><span style={{ float: "right", color: COLORS.textLight }}>剩余 {c.remaining}/{c.total} 次</span></button>)}</div>}
@@ -128,7 +128,7 @@ const CoachPage = () => {
     {showConfirm && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowConfirm(false)}>
       <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 24, width: 340 }}>
         <h3 style={{ margin: "0 0 16px", color: COLORS.text }}>确认预约</h3>
-        <div style={{ lineHeight: 2, fontSize: 14, color: COLORS.text }}>教练：<b>{selectedCoach.name}</b><br />日期：<b>{selectedDay?.label}</b><br />时段：<b>{range}</b><br />时长：<b>{duration} 小时</b><br />支付：<b>{payMethod === "coin" ? `${cost} Coin` : `课程卡 ${usableCards.find(c => c.id === payCardId)?.name}，扣 ${cardDeduct} 次`}</b></div>
+        <div style={{ lineHeight: 2, fontSize: 14, color: COLORS.text }}>教练：<b>{selectedCoach.name}</b><br />日期：<b>{selectedDay?.label}</b><br />时段：<b>{range}</b><br />时长：<b>{duration} 小时</b><br />支付：<b>{payMethod === "wechat" ? `¥${cost} 微信支付` : `课程卡 ${usableCards.find(c => c.id === payCardId)?.name}，扣 ${cardDeduct} 次`}</b></div>
         <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button onClick={() => setShowConfirm(false)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1.5px solid ${COLORS.primary}`, background: "#fff", color: COLORS.primary, fontWeight: 600, cursor: "pointer" }}>取消</button><button onClick={doBook} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.gradient, color: "#fff", fontWeight: 600, cursor: "pointer" }}>确认</button></div>
       </div>
     </div>}
@@ -139,7 +139,7 @@ const CoachPage = () => {
       {activeCoaches.map(c => <div key={c.id} onClick={() => setSelectedCoach(c)} style={{ background: COLORS.card, borderRadius: 14, padding: 16, display: "flex", gap: 14, alignItems: "center", cursor: "pointer", boxShadow: "0 2px 10px rgba(59,45,139,0.06)" }}>
         <div style={{ width: 52, height: 52, borderRadius: "50%", background: c.avatar ? `url(${c.avatar}) center/cover` : "#D1D5DB", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0, overflow: "hidden" }}>{!c.avatar && "🏓"}</div>
         <div style={{ flex: 1 }}><div style={{ fontWeight: 700, color: COLORS.text, marginBottom: 4 }}>{c.name}</div><Pill color={COLORS.primary}>{c.level}</Pill><div style={{ fontSize: 12, color: COLORS.textLight, marginTop: 4 }}>{c.specialties.join(" · ")}</div></div>
-        <div style={{ textAlign: "right" }}><div style={{ color: COLORS.secondary, fontWeight: 700, fontSize: 16 }}>{c.price} 🪙/h</div><div style={{ fontSize: 11, color: COLORS.textLight }}>全时段可约</div></div>
+        <div style={{ textAlign: "right" }}><div style={{ color: COLORS.secondary, fontWeight: 700, fontSize: 16 }}>¥{c.price}/h</div><div style={{ fontSize: 11, color: COLORS.textLight }}>全时段可约</div></div>
       </div>)}
     </div>
   </div>;
@@ -159,7 +159,7 @@ const CoursePage = () => {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
             <div><div style={{ fontWeight: 700, fontSize: 16, color: COLORS.text }}>{c.emoji} {c.title}</div><div style={{ fontSize: 13, color: COLORS.textLight, margin: "4px 0" }}>{c.desc}</div>
               <div style={{ display: "flex", gap: 6 }}><Pill color={COLORS.primary}>{c.lessons}课时</Pill><Pill color={COLORS.textLight}>{c.enrolled}人已购</Pill></div></div>
-            <div style={{ textAlign: "right" }}><div style={{ color: COLORS.secondary, fontWeight: 800, fontSize: 18 }}>{c.price} 🪙</div><button onClick={() => setConfirm(c)} style={{ marginTop: 6, padding: "6px 18px", background: COLORS.gradient, color: "#fff", border: "none", borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>购买</button></div>
+            <div style={{ textAlign: "right" }}><div style={{ color: COLORS.secondary, fontWeight: 800, fontSize: 18 }}>¥{c.price}</div><button onClick={() => setConfirm(c)} style={{ marginTop: 6, padding: "6px 18px", background: COLORS.gradient, color: "#fff", border: "none", borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>购买</button></div>
           </div>
           {c.outline && c.outline.length > 0 && <div style={{ marginTop: 10 }}>
             <div onClick={() => setExpanded(expanded === c.id ? null : c.id)} style={{ cursor: "pointer", fontSize: 13, fontWeight: 600, color: COLORS.primary }}>
@@ -173,7 +173,7 @@ const CoursePage = () => {
     {confirm && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setConfirm(null)}>
       <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 24, width: 320 }}>
         <h3 style={{ margin: "0 0 12px", color: COLORS.text }}>确认购买</h3>
-        <p style={{ fontSize: 14, color: COLORS.text, margin: "0 0 8px" }}><b>{confirm.title}</b></p><p style={{ fontSize: 14, color: COLORS.textLight, margin: "0 0 12px" }}>价格：{confirm.price} Coin · {confirm.lessons}课时<br />购买后将生成课程卡</p>
+        <p style={{ fontSize: 14, color: COLORS.text, margin: "0 0 8px" }}><b>{confirm.title}</b></p><p style={{ fontSize: 14, color: COLORS.textLight, margin: "0 0 12px" }}>价格：¥{confirm.price} · {confirm.lessons}课时<br />购买后将生成课程卡</p><p style={{ fontSize: 12, color: COLORS.danger, margin: "0 0 12px", fontWeight: 600 }}>⚠️ 课程卡购买后不可退款</p>
         <div style={{ display: "flex", gap: 10 }}><button onClick={() => setConfirm(null)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1.5px solid ${COLORS.primary}`, background: "#fff", color: COLORS.primary, fontWeight: 600, cursor: "pointer" }}>取消</button><button onClick={() => { buyCourse(confirm); setConfirm(null); }} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.gradient, color: "#fff", fontWeight: 600, cursor: "pointer" }}>确认</button></div>
       </div>
     </div>}
@@ -332,7 +332,7 @@ const ActivityPage = () => {
                 <Pill color={COLORS.textLight}>📍 {a.location}</Pill>
                 {a.occupiedTableCount > 0 && <Pill color="#F97316">🏟️ {a.occupiedTableCount}张球台</Pill>}
               </div>
-              <div style={{ fontSize: 13, color: COLORS.textLight }}>{a.enrolledUsers.length}/{a.spots} 已报名 · {a.cost} Coin</div>
+              <div style={{ fontSize: 13, color: COLORS.textLight }}>{a.enrolledUsers.length}/{a.spots} 已报名 · {a.cost > 0 ? `¥${a.cost}` : "免费"}</div>
               {a.minParticipants > 0 && <div style={{ marginTop: 6 }}>
                 {/* Progress bar */}
                 <div style={{ background: "#eee", borderRadius: 6, height: 8, width: "100%", marginBottom: 4, maxWidth: 200 }}>
@@ -353,7 +353,7 @@ const ActivityPage = () => {
           </div>
           {a.type === "match" && a.rewards.length > 0 && <div style={{ marginTop: 8, padding: "8px 12px", background: COLORS.warning + "10", borderRadius: 8 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: COLORS.warning, marginBottom: 4 }}>🏆 奖励</div>
-            <div style={{ display: "flex", gap: 12 }}>{a.rewards.map(r => <span key={r.rank} style={{ fontSize: 12, color: COLORS.text }}>第{r.rank}名: <b>{r.amount} Coin</b></span>)}</div>
+            <div style={{ display: "flex", gap: 12 }}>{a.rewards.map(r => <span key={r.rank} style={{ fontSize: 12, color: COLORS.text }}>第{r.rank}名: <b>¥{r.amount}</b></span>)}</div>
             {a.rewardDistributed && <div style={{ fontSize: 12, color: COLORS.success, marginTop: 4 }}>✅ 奖励已发放</div>}
           </div>}
         </div>;
@@ -372,8 +372,8 @@ const ActivityPage = () => {
             <div>• 活动开始前超过24小时：<span style={{ color: COLORS.success, fontWeight: 600 }}>全额退款</span></div>
             <div>• 活动开始前24小时内：<span style={{ color: COLORS.danger, fontWeight: 600 }}>扣50%报名费</span></div>
             <div style={{ marginTop: 8, padding: "8px 12px", background: "#fff", borderRadius: 8, fontWeight: 600 }}>
-              报名费用：{info.cost} Coin · 退还比例：{Math.round(info.refundRate * 100)}%<br />
-              <span style={{ color: COLORS.primary, fontSize: 16 }}>预估退款：{info.refundAmt} Coin</span>
+              报名费用：¥{info.cost} · 退还比例：{Math.round(info.refundRate * 100)}%<br />
+              <span style={{ color: COLORS.primary, fontSize: 16 }}>预估退款：¥{info.refundAmt}（原路退回）</span>
             </div>
           </div>
           <div style={{ display: "flex", gap: 10 }}>
@@ -433,7 +433,7 @@ const TablePage = () => {
     <div style={{ display: "flex", gap: 8, overflowX: "auto", marginBottom: 14, paddingBottom: 4 }}>
       {dates.map(d => <button key={d.label} onClick={() => { setSelDate(d.label); setSelSlots([]); setError(null); }} style={{ padding: "6px 14px", borderRadius: 10, border: "none", fontWeight: 600, fontSize: 13, cursor: "pointer", background: dateKey === d.label ? COLORS.gradient : d.isWeekend ? "#FFF0E5" : "#E8E5F0", color: dateKey === d.label ? "#fff" : COLORS.text, whiteSpace: "nowrap" }}>{d.label}{d.isWeekend ? " 🌟" : ""}</button>)}
     </div>
-    <div style={{ fontSize: 12, color: COLORS.textLight, marginBottom: 12 }}>共 {totalTables} 张球台 · {avgPrice} 🪙/时 · 点击可用时段多选连续格子，最低1小时</div>
+    <div style={{ fontSize: 12, color: COLORS.textLight, marginBottom: 12 }}>共 {totalTables} 张球台 · ¥{avgPrice}/时 · 点击可用时段多选连续格子，最低1小时</div>
 
     {/* Availability grid */}
     <div style={{ background: COLORS.card, borderRadius: 14, padding: 14, boxShadow: "0 2px 10px rgba(59,45,139,0.06)" }}>
@@ -460,7 +460,7 @@ const TablePage = () => {
         <div>
           <span style={{ fontWeight: 700 }}>已选：</span><span style={{ color: COLORS.secondary, fontWeight: 600 }}>{range}</span>
           <span style={{ color: COLORS.textLight, marginLeft: 8 }}>{duration}h</span>
-          <span style={{ color: COLORS.secondary, fontWeight: 700, marginLeft: 8 }}>{cost} 🪙</span>
+          <span style={{ color: COLORS.secondary, fontWeight: 700, marginLeft: 8 }}>¥{cost}</span>
         </div>
         <button onClick={tryConfirm} style={{ padding: "6px 20px", background: COLORS.gradient, color: "#fff", border: "none", borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>预约</button>
       </div>}
@@ -470,7 +470,7 @@ const TablePage = () => {
     {showConfirm && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowConfirm(false)}>
       <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 24, width: 320 }}>
         <h3 style={{ margin: "0 0 12px", color: COLORS.text }}>确认预约</h3>
-        <p style={{ fontSize: 14, color: COLORS.text }}>日期：<b>{dateKey}</b><br />时段：<b>{range}</b><br />时长：<b>{duration} 小时</b><br />费用：<b>{cost} Coin</b></p>
+        <p style={{ fontSize: 14, color: COLORS.text }}>日期：<b>{dateKey}</b><br />时段：<b>{range}</b><br />时长：<b>{duration} 小时</b><br />费用：<b>¥{cost}</b></p>
         <div style={{ display: "flex", gap: 10 }}><button onClick={() => setShowConfirm(false)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1.5px solid ${COLORS.primary}`, background: "#fff", color: COLORS.primary, fontWeight: 600, cursor: "pointer" }}>取消</button><button onClick={doBook} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.gradient, color: "#fff", fontWeight: 600, cursor: "pointer" }}>确认</button></div>
       </div>
     </div>}
@@ -479,16 +479,15 @@ const TablePage = () => {
 
 // ======= PROFILE PAGE =======
 const ProfilePage = () => {
-  const { coins, courseCards, history, bookings, cancelBooking, recharge, transfer, userName, setUserName, userAvatar, setUserAvatar, userAvatarColor, randomizeAvatar } = useStore();
-  const [showTransfer, setShowTransfer] = useState(false);
-  const [tUser, setTUser] = useState("");
-  const [tAmt, setTAmt] = useState("");
+  const { courseCards, history, bookings, cancelBooking, userName, setUserName, userAvatar, setUserAvatar, userAvatarColor, randomizeAvatar, userId } = useStore();
+
+
   const [editingName, setEditingName] = useState(false);
   const [tempName, setTempName] = useState(userName);
   const [cancelModal, setCancelModal] = useState(null);
   const [showAvatarMenu, setShowAvatarMenu] = useState(false);
 
-  const myBookings = bookings.filter(b => b.user === userName);
+  const myBookings = bookings.filter(b => b.userId === userId);
 
   const handleAvatarUpload = (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -525,7 +524,7 @@ const ProfilePage = () => {
             {b.status !== "已取消" && b.status !== "已拒绝" && <button onClick={() => setCancelModal(b)} style={{ padding: "4px 12px", background: "none", border: `1px solid ${COLORS.danger}`, color: COLORS.danger, borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>取消预约</button>}
           </div>
           <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.text, marginBottom: 2 }}>{b.detail}</div>
-          <div style={{ fontSize: 12, color: COLORS.textLight }}>{b.payMethod} · {b.duration}h{b.status === "已取消" && b.refundAmount ? ` · 退款: ${b.refundAmount}${b.payMethod === "Coin" ? " 🪙" : " 次"}` : ""}</div>
+          <div style={{ fontSize: 12, color: COLORS.textLight }}>{b.payMethod} · {b.duration}h{b.status === "已取消" && b.refundAmount ? ` · 退款: ${b.payMethod === "课程卡" ? b.refundAmount + " 次" : "¥" + b.refundAmount}（原路退回）` : ""}</div>
         </div>)}
       </div>}
 
@@ -539,24 +538,12 @@ const ProfilePage = () => {
         </div>)}
       </div>}
 
-    {/* Wallet */}
-    <h3 style={{ margin: "0 0 10px", color: COLORS.text, fontSize: 15 }}>💰 Coin 钱包</h3>
-    <div style={{ background: COLORS.card, borderRadius: 12, padding: 16, marginBottom: 12 }}>
-      <div style={{ textAlign: "center", marginBottom: 12 }}>
-        <div style={{ fontSize: 32, fontWeight: 800, color: COLORS.primary }}>{coins} <span style={{ fontSize: 16 }}>🪙</span></div>
-      </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={recharge} style={{ flex: 1, padding: "10px", borderRadius: 8, background: COLORS.gradient, color: "#fff", border: "none", fontWeight: 600, cursor: "pointer" }}>充值 +100</button>
-        <button onClick={() => setShowTransfer(true)} style={{ flex: 1, padding: "10px", borderRadius: 8, background: "#fff", color: COLORS.primary, border: `1.5px solid ${COLORS.primary}`, fontWeight: 600, cursor: "pointer" }}>转让</button>
-      </div>
-    </div>
-
     {/* History */}
     <h3 style={{ margin: "0 0 10px", color: COLORS.text, fontSize: 15 }}>📜 交易记录</h3>
     <div style={{ background: COLORS.card, borderRadius: 12, overflow: "hidden" }}>
       {history.map((h, i) => <div key={i} style={{ padding: "10px 14px", borderBottom: "1px solid #f5f5f5", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div><div style={{ fontSize: 13, fontWeight: 600, color: COLORS.text }}>{h.desc}</div><div style={{ fontSize: 11, color: COLORS.textLight }}>{h.time}{h.payType === "card" ? " · 🎫 课程卡" : ""}</div></div>
-        <span style={{ fontWeight: 700, color: h.amount > 0 ? COLORS.success : COLORS.secondary, fontSize: 14 }}>{h.amount > 0 ? "+" : ""}{h.amount}{h.payType === "card" ? " 次" : " 🪙"}</span>
+        <div><div style={{ fontSize: 13, fontWeight: 600, color: COLORS.text }}>{h.desc}</div><div style={{ fontSize: 11, color: COLORS.textLight }}>{h.time}{h.payType === "course_card" ? " · 🎫 课程卡" : ""}</div></div>
+        <span style={{ fontWeight: 700, color: h.amount > 0 ? COLORS.success : COLORS.secondary, fontSize: 14 }}>{h.amount > 0 ? "+" : ""}{h.payType === "course_card" ? h.amount + " 次" : "¥" + Math.abs(h.amount)}</span>
       </div>)}
     </div>
 
@@ -569,21 +556,12 @@ const ProfilePage = () => {
           <div style={{ fontWeight: 700, color: COLORS.warning, marginBottom: 4 }}>📋 退款规则</div>
           <div>• 距预约时间 <b>超过24小时</b>：<span style={{ color: COLORS.success, fontWeight: 600 }}>全额退款</span></div>
           <div>• 距预约时间 <b>24小时内</b>：<span style={{ color: COLORS.danger, fontWeight: 600 }}>扣50%费用</span>，退还50%</div>
-          <div style={{ fontSize: 12, color: COLORS.textLight, marginTop: 4 }}>当前预估退款：<b>{cancelModal.payMethod === "Coin" ? `${cancelModal.cost} Coin` : `${cancelModal.cardDeduct || cancelModal.duration} 次`}</b>（全额）</div>
+          <div style={{ fontSize: 12, color: COLORS.textLight, marginTop: 4 }}>当前预估退款：<b>{cancelModal.payMethod === "课程卡" ? `${cancelModal.cardDeduct || cancelModal.duration} 次` : `¥${cancelModal.cost}`}</b>，原路退回</div>
         </div>
         <div style={{ display: "flex", gap: 10 }}><button onClick={() => setCancelModal(null)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1.5px solid ${COLORS.primary}`, background: "#fff", color: COLORS.primary, fontWeight: 600, cursor: "pointer" }}>返回</button><button onClick={doCancelBooking} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.danger, color: "#fff", fontWeight: 600, cursor: "pointer" }}>确认取消</button></div>
       </div>
     </div>}
 
-    {/* Transfer modal */}
-    {showTransfer && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowTransfer(false)}>
-      <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 24, width: 320 }}>
-        <h3 style={{ margin: "0 0 16px", color: COLORS.text }}>转让 Coin</h3>
-        <div style={{ marginBottom: 12 }}><label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 4 }}>转给</label><input value={tUser} onChange={e => setTUser(e.target.value)} placeholder="对方昵称" style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: `1px solid ${COLORS.primary}25`, outline: "none", fontSize: 14, boxSizing: "border-box" }} /></div>
-        <div style={{ marginBottom: 12 }}><label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 4 }}>金额</label><input type="number" value={tAmt} onChange={e => setTAmt(e.target.value)} placeholder="输入数量" style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: `1px solid ${COLORS.primary}25`, outline: "none", fontSize: 14, boxSizing: "border-box" }} /></div>
-        <div style={{ display: "flex", gap: 10 }}><button onClick={() => setShowTransfer(false)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1.5px solid ${COLORS.primary}`, background: "#fff", color: COLORS.primary, fontWeight: 600, cursor: "pointer" }}>取消</button><button onClick={() => { transfer(tUser, Number(tAmt)); setShowTransfer(false); setTUser(""); setTAmt(""); }} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.gradient, color: "#fff", fontWeight: 600, cursor: "pointer" }}>确认</button></div>
-      </div>
-    </div>}
   </div>;
 };
 

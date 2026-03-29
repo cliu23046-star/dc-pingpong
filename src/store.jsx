@@ -81,7 +81,7 @@ const mapCoach = (r) => ({ id: r.id, name: r.name, level: r.level, specialties: 
 const mapCourse = (r) => ({ id: r.id, title: r.title, desc: r.description, emoji: r.emoji, lessons: r.lessons, price: r.price, coverImage: r.cover_url, outline: r.outline || [], enrolled: r.enrolled, status: r.status });
 const mapActivity = (r) => ({ id: r.id, title: r.title, type: r.type, emoji: r.emoji, date: r.date, time: r.time, location: r.location, spots: r.spots, cost: r.cost, rewards: r.rewards || [], enrolledUsers: r.enrolled_users || [], rewardDistributed: r.reward_distributed, tableId: r.table_id, tableSlot: r.table_slot, status: r.status, occupiedTableCount: r.occupied_table_count || 0, occupiedTimeSlots: r.occupied_time_slots || [], minParticipants: r.min_participants || 0 });
 const mapTable = (r) => ({ id: r.id, name: r.name, pricePerHour: r.price_per_hour, status: r.status, closedDates: r.closed_dates || [], unavailableSlots: r.unavailable_slots || [], openWeekendDates: r.open_weekend_dates || [] });
-const mapBooking = (r) => ({ id: r.id, userId: r.user_id, user: r.user_name, type: r.type, targetId: r.target_id, targetName: r.target_name, detail: r.detail, date: r.date, slots: r.time_slots || [], duration: Number(r.duration), payMethod: r.payment_method === "coin" ? "Coin" : "课程卡", cost: Number(r.amount), cardId: r.card_id, cardDeduct: Number(r.card_deduct || 0), status: r.status, refunded: r.refunded, refundAmount: Number(r.refund_amount || 0), cancelledAt: r.cancelled_at, createdAt: r.created_at });
+const mapBooking = (r) => ({ id: r.id, userId: r.user_id, user: r.user_name, type: r.type, targetId: r.target_id, targetName: r.target_name, detail: r.detail, date: r.date, slots: r.time_slots || [], duration: Number(r.duration), payMethod: r.payment_method === "course_card" ? "课程卡" : "微信支付", cost: Number(r.amount), cardId: r.card_id, cardDeduct: Number(r.card_deduct || 0), status: r.status, refunded: r.refunded, refundAmount: Number(r.refund_amount || 0), cancelledAt: r.cancelled_at, createdAt: r.created_at });
 const mapPost = (r) => ({ id: r.id, user: r.user_name, avatar: r.user_avatar, time: timeSince(r.created_at), content: r.content, type: r.type, voteYes: r.vote_yes, voteNo: r.vote_no, likes: r.likes, comments: r.comments, pinned: r.is_pinned, voted: false });
 const mapCard = (r) => ({ id: r.id, userId: r.user_id, courseId: r.course_id, name: r.course_name, total: Number(r.total_lessons), remaining: Number(r.remaining_lessons), date: r.purchase_date });
 const mapTx = (r) => ({ id: r.id, userId: r.user_id, desc: r.description, amount: Number(r.amount), time: timeSince(r.created_at), payType: r.type, createdAt: r.created_at });
@@ -113,7 +113,7 @@ export function StoreProvider({ children }) {
   const [userName, setUserNameState] = useState("球友");
   const [userAvatar, setUserAvatarState] = useState(null);
   const [userAvatarColor, setUserAvatarColor] = useState("#6C5CE7");
-  const [coins, setCoinsState] = useState(500);
+  const [coins, setCoinsState] = useState(0);
   const [courseCards, setCourseCards] = useState([]);
   const [history, setHistory] = useState([]);
   const [joinedIds, setJoinedIds] = useState([]);
@@ -214,35 +214,43 @@ export function StoreProvider({ children }) {
   };
 
   // ---- HELPERS ----
-  const addTx = async (desc, amount, type = "coin", uid = null) => {
+  const addTx = async (desc, amount, type = "wechat", uid = null) => {
     await supabase.from("transactions").insert({ user_id: uid || userId, description: desc, amount, type });
   };
 
-  const spendCoins = async (amt, desc) => {
-    if (coins < amt) {
-      setResultModal({ type: "fail", title: "余额不足", msg: `需要 ${amt} Coin，当前余额 ${coins} Coin` });
-      return false;
+  // Simulated WeChat Pay — will be replaced with real API when merchant account is ready
+  const simulateWechatPay = (amount, desc) => {
+    return new Promise((resolve) => {
+      const ok = window.confirm(`模拟微信支付\n\n${desc}\n金额：¥${amount}\n\n点击"确定"模拟支付成功`);
+      resolve(ok);
+    });
+  };
+
+  // Content moderation — basic keyword filter (replace with WeChat msgSecCheck in production)
+  const SENSITIVE_WORDS = ["赌博", "色情", "暴力", "毒品", "枪支", "反动", "邪教", "诈骗", "传销", "洗钱"];
+  const checkContent = (text) => {
+    for (const word of SENSITIVE_WORDS) {
+      if (text.includes(word)) return { ok: false, msg: "内容包含违规信息，请修改后重试" };
     }
-    await supabase.from("users").update({ coins: coins - amt }).eq("id", userId);
-    await addTx(desc, -amt, "coin");
-    setCoinsState(c => c - amt);
-    return true;
+    return { ok: true };
   };
 
   // ---- USER ACTIONS ----
-  const bookCoachCoin = useCallback(async (coach, selectedSlots, dateLabel) => {
+  const bookCoachWechat = useCallback(async (coach, selectedSlots, dateLabel) => {
     const dur = slotsDuration(selectedSlots);
     const cost = Math.round(coach.price * dur);
     const range = slotsRange(selectedSlots);
     const desc = `预约 ${coach.name} ${dateLabel} ${range} (${dur}h)`;
-    const ok = await spendCoins(cost, desc);
+    // TODO: Replace simulateWechatPay with real WeChat Pay API
+    const ok = await simulateWechatPay(cost, desc);
     if (ok) {
-      await supabase.from("bookings").insert({ user_id: userId, user_name: userName, type: "教练预约", target_id: coach.id, target_name: coach.name, detail: `${coach.name} ${dateLabel} ${range}`, date: dateLabel, time_slots: selectedSlots, duration: dur, payment_method: "coin", amount: cost, status: "待确认" });
-      setResultModal({ type: "success", title: "操作成功", msg: `${desc}，花费 ${cost} Coin` });
+      await supabase.from("bookings").insert({ user_id: userId, user_name: userName, type: "教练预约", target_id: coach.id, target_name: coach.name, detail: `${coach.name} ${dateLabel} ${range}`, date: dateLabel, time_slots: selectedSlots, duration: dur, payment_method: "wechat", amount: cost, status: "待确认" });
+      await addTx(desc, -cost, "wechat");
+      setResultModal({ type: "success", title: "支付成功", msg: `${desc}，支付 ¥${cost}` });
       await refetchBookings();
       await refetchUser();
     }
-  }, [userId, userName, coins]);
+  }, [userId, userName]);
 
   const bookCoachCard = useCallback(async (coach, selectedSlots, dateLabel, cardId) => {
     const dur = slotsDuration(selectedSlots);
@@ -262,20 +270,24 @@ export function StoreProvider({ children }) {
   }, [userId, userName, courseCards]);
 
   const buyCourse = useCallback(async (course) => {
-    const ok = await spendCoins(course.price, `购买课程: ${course.title}`);
+    // TODO: Replace simulateWechatPay with real WeChat Pay API
+    const ok = await simulateWechatPay(course.price, `购买课程: ${course.title}`);
     if (ok) {
       await supabase.from("courses").update({ enrolled: course.enrolled + 1 }).eq("id", course.id);
       const cn = chinaDate();
       await supabase.from("course_cards").insert({ user_id: userId, course_id: course.id, course_name: course.title, total_lessons: course.lessons, remaining_lessons: course.lessons, purchase_date: `${cn.getMonth() + 1}/${cn.getDate()}` });
-      setResultModal({ type: "success", title: "购买成功", msg: `已购买 ${course.title}，获得 ${course.lessons} 课时` });
+      await addTx(`购买课程: ${course.title}`, -course.price, "wechat");
+      setResultModal({ type: "success", title: "购买成功", msg: `已购买 ${course.title}，获得 ${course.lessons} 课时（课程卡不可退款）` });
       await refetchCourses();
       await refetchUser();
     }
-  }, [userId, coins]);
+  }, [userId]);
 
   const joinActivity = useCallback(async (activity) => {
-    const ok = await spendCoins(activity.cost, `报名: ${activity.title}`);
+    // TODO: Replace simulateWechatPay with real WeChat Pay API
+    const ok = activity.cost > 0 ? await simulateWechatPay(activity.cost, `报名: ${activity.title}`) : true;
     if (ok) {
+      if (activity.cost > 0) await addTx(`报名: ${activity.title}`, -activity.cost, "wechat");
       const newEnrolled = [...activity.enrolledUsers, { user_id: userId, name: userName, enrolled_at: new Date().toISOString(), cost: activity.cost }];
       await supabase.from("activities").update({ enrolled_users: newEnrolled }).eq("id", activity.id);
       setJoinedIds(p => [...p, activity.id]);
@@ -283,17 +295,15 @@ export function StoreProvider({ children }) {
       await refetchActivities();
       await refetchUser();
     }
-  }, [userId, userName, coins]);
+  }, [userId, userName]);
 
   const cancelActivityEnrollment = useCallback(async (activity) => {
     const entry = activity.enrolledUsers.find(e => e.user_id === userId || e.name === userName);
     if (!entry) return;
     const entryCost = entry.cost != null ? entry.cost : activity.cost;
-    // Determine refund rate: >24h before activity = 100%, ≤24h = 50%
     let refundRate = 1.0;
     if (activity.date) {
       const now = new Date();
-      // Parse activity date+time like "3/15 14:00"
       const [datePart] = activity.date.split(' ');
       const [mon, day] = datePart.split('/').map(Number);
       const timeParts = (activity.time || '09:00').split(':').map(Number);
@@ -302,73 +312,66 @@ export function StoreProvider({ children }) {
       if (hoursUntil <= 24) refundRate = 0.5;
     }
     const refundAmt = Math.round(entryCost * refundRate);
-    // Refund
+    // TODO: Replace with real WeChat refund API
     if (refundAmt > 0) {
-      await supabase.from("users").update({ coins: coins + refundAmt }).eq("id", userId);
-      await addTx(`取消活动报名退款: ${activity.title}${refundRate < 1 ? ' (50%)' : ' (全额)'}`, refundAmt, "coin");
+      await addTx(`取消活动报名退款: ${activity.title}${refundRate < 1 ? ' (50%)' : ' (全额)'}`, refundAmt, "wechat_refund");
     }
-    // Remove from enrolled
     const newEnrolled = activity.enrolledUsers.filter(e => !(e.user_id === userId || e.name === userName));
     await supabase.from("activities").update({ enrolled_users: newEnrolled }).eq("id", activity.id);
     setJoinedIds(p => p.filter(id => id !== activity.id));
-    setResultModal({ type: "success", title: "已取消报名", msg: `已退还 ${refundAmt} Coin${refundRate < 1 ? '（24小时内取消扣50%）' : '（全额退款）'}` });
+    setResultModal({ type: "success", title: "已取消报名", msg: `退款 ¥${refundAmt} 将原路退回${refundRate < 1 ? '（24小时内取消扣50%）' : '（全额退款）'}` });
     await refetchActivities();
     await refetchUser();
-  }, [userId, userName, coins]);
+  }, [userId, userName]);
 
   const bookTable = useCallback(async (selectedSlots, dateKey) => {
-    // No longer tied to a specific table — just reserves a generic slot
     const dur = slotsDuration(selectedSlots);
     const avgPrice = tables.length > 0 ? Math.round(tables.reduce((s, t) => s + t.pricePerHour, 0) / tables.length) : 15;
     const cost = Math.round(avgPrice * dur);
     const range = slotsRange(selectedSlots);
     const desc = `租球台 ${dateKey} ${range} (${dur}h)`;
-    const ok = await spendCoins(cost, desc);
+    // TODO: Replace simulateWechatPay with real WeChat Pay API
+    const ok = await simulateWechatPay(cost, desc);
     if (ok) {
-      await supabase.from("bookings").insert({ user_id: userId, user_name: userName, type: "球台预约", target_id: null, target_name: "球台", detail: `球台 ${dateKey} ${range}`, date: dateKey, time_slots: selectedSlots, duration: dur, payment_method: "coin", amount: cost, status: "待确认" });
-      setResultModal({ type: "success", title: "操作成功", msg: `${desc}，花费 ${cost} Coin` });
+      await supabase.from("bookings").insert({ user_id: userId, user_name: userName, type: "球台预约", target_id: null, target_name: "球台", detail: `球台 ${dateKey} ${range}`, date: dateKey, time_slots: selectedSlots, duration: dur, payment_method: "wechat", amount: cost, status: "待确认" });
+      await addTx(desc, -cost, "wechat");
+      setResultModal({ type: "success", title: "支付成功", msg: `${desc}，支付 ¥${cost}` });
       await refetchBookings();
       await refetchUser();
     }
-  }, [userId, userName, coins, tables]);
+  }, [userId, userName, tables]);
 
   const cancelBooking = useCallback(async (bookingId) => {
     const b = bookings.find(x => x.id === bookingId);
     if (!b || b.status === "已取消") return;
-    const fullRefund = true;
-    const rate = fullRefund ? 1.0 : 0.5;
-    if (b.payMethod === "Coin" && b.cost > 0) {
+    // Determine refund rate based on 24h rule
+    let rate = 1.0;
+    if (b.date) {
+      const now = new Date();
+      const [mon, day] = b.date.split('/').map(Number);
+      const firstSlot = b.slots?.[0] || '09:00';
+      const [hh, mm] = firstSlot.split(':').map(Number);
+      const bookDate = new Date(now.getFullYear(), mon - 1, day, hh, mm);
+      if ((bookDate - now) / (1000 * 60 * 60) <= 24) rate = 0.5;
+    }
+    if (b.payMethod === "微信支付" && b.cost > 0) {
       const refund = Math.round(b.cost * rate);
-      await supabase.from("users").update({ coins: coins + refund }).eq("id", userId);
-      await addTx(`取消退款: ${b.detail}${fullRefund ? " (全额)" : " (50%)"}`, refund, "coin");
+      // TODO: Replace with real WeChat refund API
+      await addTx(`取消退款(原路退回): ${b.detail}${rate < 1 ? ' (50%)' : ' (全额)'}`, refund, "wechat_refund");
     } else if (b.payMethod === "课程卡" && b.cardId && b.cardDeduct) {
-      const refund = b.cardDeduct * rate;
+      const refund = Math.round(b.cardDeduct * rate);
       const card = courseCards.find(c => c.id === b.cardId);
       if (card) await supabase.from("course_cards").update({ remaining_lessons: card.remaining + refund }).eq("id", b.cardId);
       await addTx(`取消退还课程卡: ${b.detail}`, refund, "course_card");
     }
-    const refundAmt = b.payMethod === "Coin" ? Math.round(b.cost * rate) : b.cardDeduct * rate;
+    const refundAmt = b.payMethod === "微信支付" ? Math.round(b.cost * rate) : Math.round(b.cardDeduct * rate);
     await supabase.from("bookings").update({ status: "已取消", refunded: true, refund_amount: refundAmt, cancelled_at: new Date().toISOString() }).eq("id", bookingId);
+    setResultModal({ type: "success", title: "已取消", msg: rate < 1 ? `24小时内取消，退款 ¥${refundAmt}（扣50%），原路退回` : `全额退款 ¥${refundAmt}，原路退回` });
     await refetchBookings();
     await refetchUser();
-  }, [bookings, coins, courseCards, userId]);
+  }, [bookings, courseCards, userId]);
 
-  const recharge = useCallback(async () => {
-    await supabase.from("users").update({ coins: coins + 100 }).eq("id", userId);
-    await addTx("充值", 100, "coin");
-    setCoinsState(c => c + 100);
-    setResultModal({ type: "success", title: "充值成功", msg: "已充值 100 Coin" });
-    await refetchUser();
-  }, [userId, coins]);
-
-  const transfer = useCallback(async (toUser, amount) => {
-    if (coins < amount) { setResultModal({ type: "fail", title: "余额不足", msg: `需要 ${amount} Coin` }); return; }
-    await supabase.from("users").update({ coins: coins - amount }).eq("id", userId);
-    await addTx(`转让给 ${toUser}`, -amount, "coin");
-    setCoinsState(c => c - amount);
-    setResultModal({ type: "success", title: "转让成功", msg: `已向 ${toUser} 转让 ${amount} Coin` });
-    await refetchUser();
-  }, [userId, coins]);
+  // recharge and transfer removed — no longer using Coin system
 
   // ---- ADMIN ACTIONS ----
   const approveBooking = useCallback(async (id) => {
@@ -380,10 +383,9 @@ export function StoreProvider({ children }) {
     const b = bookings.find(x => x.id === id);
     if (!b) return;
     const targetUserId = b.userId || userId;
-    if (b.payMethod === "Coin" && b.cost > 0) {
-      const { data: u } = await supabase.from("users").select("coins").eq("id", targetUserId).single();
-      if (u) await supabase.from("users").update({ coins: u.coins + b.cost }).eq("id", targetUserId);
-      await addTx(`退款: ${b.detail}`, b.cost, "coin", targetUserId);
+    if (b.payMethod === "微信支付" && b.cost > 0) {
+      // TODO: Replace with real WeChat refund API
+      await addTx(`拒绝退款(原路退回): ${b.detail}`, b.cost, "wechat_refund", targetUserId);
     } else if (b.payMethod === "课程卡" && b.cardId && b.cardDeduct) {
       const { data: c } = await supabase.from("course_cards").select("remaining_lessons").eq("id", b.cardId).single();
       if (c) await supabase.from("course_cards").update({ remaining_lessons: Number(c.remaining_lessons) + b.cardDeduct }).eq("id", b.cardId);
@@ -397,18 +399,20 @@ export function StoreProvider({ children }) {
 
   const distributeReward = useCallback(async (activityId, rankAssignments) => {
     await supabase.from("activities").update({ reward_distributed: true }).eq("id", activityId);
+    // Rewards are now recorded as transactions only (no Coin balance changes)
     for (const r of rankAssignments) {
-      if (r.userName === userName) {
-        await supabase.from("users").update({ coins: coins + r.amount }).eq("id", userId);
-        await addTx(`比赛奖励: 第${r.rank}名`, r.amount, "coin");
+      if (r.userName) {
+        await addTx(`比赛奖励: 第${r.rank}名 ¥${r.amount}`, r.amount, "reward");
       }
     }
     await refetchActivities();
     await refetchUser();
-  }, [userId, userName, coins]);
+  }, [userId, userName]);
 
   // Community
   const addPost = useCallback(async (content) => {
+    const check = checkContent(content);
+    if (!check.ok) { setResultModal({ type: "fail", title: "发布失败", msg: check.msg }); return; }
     await supabase.from("posts").insert({ user_id: userId, user_name: userName, user_avatar: "🙋", content, type: "动态" });
     await refetchPosts();
   }, [userId, userName]);
@@ -428,6 +432,8 @@ export function StoreProvider({ children }) {
   }, [posts]);
 
   const editPost = useCallback(async (id, newContent) => {
+    const check = checkContent(newContent);
+    if (!check.ok) { setResultModal({ type: 'fail', title: '编辑失败', msg: check.msg }); return; }
     await supabase.from("posts").update({ content: newContent }).eq("id", id);
     await refetchPosts();
   }, []);
@@ -443,8 +449,9 @@ export function StoreProvider({ children }) {
   }, []);
 
   const addComment = useCallback(async (postId, content) => {
+    const check = checkContent(content);
+    if (!check.ok) { setResultModal({ type: "fail", title: "发布失败", msg: check.msg }); return; }
     await supabase.from("comments").insert({ post_id: postId, user_id: userId, user_name: userName, user_avatar: "🙋", content });
-    // Increment comment count on the post
     const p = posts.find(x => x.id === postId);
     if (p) await supabase.from("posts").update({ comments: (p.comments || 0) + 1 }).eq("id", postId);
     await refetchPosts();
@@ -499,23 +506,13 @@ export function StoreProvider({ children }) {
   const adminCancelActivity = useCallback(async (activityId) => {
     const a = activities.find(x => x.id === activityId);
     if (!a) return;
-    // Refund each enrolled user
+    // Record refund transactions for each enrolled user (actual refund via WeChat Pay API)
     for (const eu of a.enrolledUsers) {
       const euCost = eu.cost != null ? eu.cost : a.cost;
       const uid = eu.user_id;
-      if (uid) {
-        const { data: u } = await supabase.from("users").select("*").eq("id", uid).single();
-        if (u && euCost > 0) {
-          await supabase.from("users").update({ coins: u.coins + euCost }).eq("id", uid);
-          await addTx(`活动取消全额退款: ${a.title}`, euCost, "coin", uid);
-        }
-      } else {
-        // Fallback: find by nickname
-        const { data: u } = await supabase.from("users").select("*").eq("nickname", eu.name).single();
-        if (u && euCost > 0) {
-          await supabase.from("users").update({ coins: u.coins + euCost }).eq("id", u.id);
-          await addTx(`活动取消全额退款: ${a.title}`, euCost, "coin", u.id);
-        }
+      if (uid && euCost > 0) {
+        // TODO: Replace with real WeChat refund API
+        await addTx(`活动取消全额退款(原路退回): ${a.title} ¥${euCost}`, euCost, "wechat_refund", uid);
       }
     }
     await supabase.from("activities").update({ status: "已取消", enrolled_users: [] }).eq("id", activityId);
@@ -529,19 +526,15 @@ export function StoreProvider({ children }) {
     const entry = activity.enrolledUsers.find(e => e.user_id === targetUserId);
     if (!entry) return { ok: false, msg: '该用户未报名' };
     const euCost = entry.cost != null ? entry.cost : activity.cost;
-    // Full refund for admin cancel
     if (euCost > 0) {
-      const { data: u } = await supabase.from("users").select("coins").eq("id", targetUserId).single();
-      if (u) {
-        await supabase.from("users").update({ coins: u.coins + euCost }).eq("id", targetUserId);
-        await addTx(`管理员取消报名退款: ${activity.title}`, euCost, "coin", targetUserId);
-      }
+      // TODO: Replace with real WeChat refund API
+      await addTx(`管理员取消报名退款(原路退回): ${activity.title}`, euCost, "wechat_refund", targetUserId);
     }
     const newEnrolled = activity.enrolledUsers.filter(e => e.user_id !== targetUserId);
     await supabase.from("activities").update({ enrolled_users: newEnrolled }).eq("id", activity.id);
     await refetchActivities();
     await refetchUsers();
-    return { ok: true, msg: `已取消 ${entry.name} 的报名，退还 ${euCost} Coin` };
+    return { ok: true, msg: `已取消 ${entry.name} 的报名，退款 ¥${euCost} 原路退回` };
   }, []);
 
   // ---- ADMIN CRUD (Tables) ----
@@ -590,14 +583,7 @@ export function StoreProvider({ children }) {
     if (uid === userId) await refetchUser();
   }, [userId]);
 
-  const adminAdjustCoins = useCallback(async (uid, amount, reason) => {
-    const u = allUsers.find(x => x.id === uid);
-    if (!u) return;
-    await supabase.from("users").update({ coins: u.coins + amount }).eq("id", uid);
-    await addTx(`管理员调整: ${reason}`, amount, "coin", uid);
-    await refetchUsers();
-    if (uid === userId) await refetchUser();
-  }, [allUsers, userId]);
+  // adminAdjustCoins removed — no longer using Coin system
 
   const adminCreateCard = useCallback(async (uid, courseId, courseName, lessons) => {
     const cn = chinaDate();
@@ -624,9 +610,9 @@ export function StoreProvider({ children }) {
   }, []);
 
   // ---- ADMIN: Create user ----
-  const adminCreateUser = useCallback(async (nickname, initialCoins = 500) => {
+  const adminCreateUser = useCallback(async (nickname) => {
     const color = randomAvatarColor();
-    await supabase.from("users").insert({ nickname, coins: initialCoins, avatar_color: color });
+    await supabase.from("users").insert({ nickname, avatar_color: color });
     await refetchUsers();
   }, []);
 
@@ -636,18 +622,16 @@ export function StoreProvider({ children }) {
     const cost = Math.round(coach.price * dur);
     const range = slotsRange(selectedSlots);
     const detail = `${coach.name} ${dateLabel} ${range}`;
-    if (payMethod === "coin") {
-      const { data: u } = await supabase.from("users").select("coins").eq("id", targetUserId).single();
-      if (!u || u.coins < cost) return { ok: false, msg: `用户Coin不足，需${cost}，当前${u?.coins || 0}` };
-      await supabase.from("users").update({ coins: u.coins - cost }).eq("id", targetUserId);
-      await addTx(`管理员代约: ${detail}`, -cost, "coin", targetUserId);
+    if (payMethod === "wechat") {
+      // Admin proxy: record as wechat payment (no actual charge in test phase)
+      await addTx(`管理员代约: ${detail} ¥${cost}`, -cost, "wechat", targetUserId);
     } else {
       const { data: cards } = await supabase.from("course_cards").select("*").eq("id", cardId).single();
       if (!cards || cards.remaining_lessons < dur) return { ok: false, msg: `课程卡不足，需${dur}次，剩余${cards?.remaining_lessons || 0}次` };
       await supabase.from("course_cards").update({ remaining_lessons: cards.remaining_lessons - dur }).eq("id", cardId);
       await addTx(`管理员代约(课程卡): ${detail}`, -dur, "course_card", targetUserId);
     }
-    await supabase.from("bookings").insert({ user_id: targetUserId, user_name: targetUserName, type: "教练预约", target_id: coach.id, target_name: coach.name, detail, date: dateLabel, time_slots: selectedSlots, duration: dur, payment_method: payMethod === "coin" ? "coin" : "course_card", amount: payMethod === "coin" ? cost : 0, card_id: cardId || null, card_deduct: payMethod === "coin" ? 0 : dur, status: "已确认" });
+    await supabase.from("bookings").insert({ user_id: targetUserId, user_name: targetUserName, type: "教练预约", target_id: coach.id, target_name: coach.name, detail, date: dateLabel, time_slots: selectedSlots, duration: dur, payment_method: payMethod === "wechat" ? "wechat" : "course_card", amount: payMethod === "wechat" ? cost : 0, card_id: cardId || null, card_deduct: payMethod === "wechat" ? 0 : dur, status: "已确认" });
     await refetchBookings();
     await refetchUsers();
     return { ok: true, msg: `已为${targetUserName}预约${detail}` };
@@ -658,10 +642,8 @@ export function StoreProvider({ children }) {
     if (activity.enrolledUsers.some(e => e.user_id === targetUserId || e.name === targetUserName)) return { ok: false, msg: `${targetUserName}已报名该活动` };
     if (activity.enrolledUsers.length >= activity.spots) return { ok: false, msg: "名额已满" };
     if (activity.cost > 0) {
-      const { data: u } = await supabase.from("users").select("coins").eq("id", targetUserId).single();
-      if (!u || u.coins < activity.cost) return { ok: false, msg: `用户Coin不足，需${activity.cost}，当前${u?.coins || 0}` };
-      await supabase.from("users").update({ coins: u.coins - activity.cost }).eq("id", targetUserId);
-      await addTx(`管理员代报名: ${activity.title}`, -activity.cost, "coin", targetUserId);
+      // Admin proxy: record as wechat payment (no actual charge in test phase)
+      await addTx(`管理员代报名: ${activity.title} ¥${activity.cost}`, -activity.cost, "wechat", targetUserId);
     }
     const newEnrolled = [...activity.enrolledUsers, { user_id: targetUserId, name: targetUserName, enrolled_at: new Date().toISOString(), cost: activity.cost }];
     await supabase.from("activities").update({ enrolled_users: newEnrolled }).eq("id", activity.id);
@@ -694,17 +676,17 @@ export function StoreProvider({ children }) {
 
   const value = {
     loading, coaches, courses, activities, tables, bookings, posts, allUsers,
-    coins, courseCards, history, joinedIds, resultModal,
+    courseCards, history, joinedIds, resultModal,
     userName, userAvatar, userAvatarColor, userId,
     openWeekendDates, getSlotOccupancy, totalTables, isCoachSlotBooked,
     setResultModal, setUserName, setUserAvatar, randomizeAvatar,
-    bookCoachCoin, bookCoachCard, buyCourse, joinActivity, cancelActivityEnrollment, bookTable, cancelBooking,
-    recharge, transfer, addPost, editPost, deletePost, likePost, votePost, fetchComments, addComment,
+    bookCoachWechat, bookCoachCard, buyCourse, joinActivity, cancelActivityEnrollment, bookTable, cancelBooking,
+    addPost, editPost, deletePost, likePost, votePost, fetchComments, addComment,
     approveBooking, rejectBooking, distributeReward,
     adminSaveCoach, adminDeleteCoach, adminSaveCourse, adminDeleteCourse,
     adminSaveActivity, adminDeleteActivity, adminCancelActivity, adminCancelUserEnrollment, adminSaveTable, adminDeleteTable,
     adminToggleTableSlot, adminToggleWeekendDate, adminDeletePost, adminPinPost,
-    adminUpdateUser, adminAdjustCoins, adminCreateCard, adminUpdateCardRemaining, adminGetUserCards,
+    adminUpdateUser, adminCreateCard, adminUpdateCardRemaining, adminGetUserCards,
     adminGetUserTransactions, adminCreateUser, adminBookForUser, adminEnrollForUser,
     adminUpdateCoachClosedDates, adminUpdateCoachClosedSlots, isSlotPastCutoff,
     refetchAll: fetchAll, refetchUsers, refetchBookings,
