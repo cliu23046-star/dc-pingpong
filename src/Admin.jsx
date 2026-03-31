@@ -219,6 +219,8 @@ const CourseMgmt = () => {
 // ======= ACTIVITY MANAGEMENT =======
 const ActivityMgmt = () => {
     const { activities, allUsers, tables, distributeReward, adminSaveActivity, adminDeleteActivity, adminCancelActivity, adminCancelUserEnrollment, adminEnrollForUser } = useStore();
+    const userLabel = (u) => u ? `${u.nickname}（${u.phone || '无手机'}）` : "";
+    const euLabel = (eu) => { const u = allUsers.find(x => x.id === eu.user_id); return u ? userLabel(u) : eu.name; };
     const [modal, setModal] = useState(null);
     const [rewardModal, setRewardModal] = useState(null);
     const [assignments, setAssignments] = useState({});
@@ -324,7 +326,7 @@ const ActivityMgmt = () => {
                     <table style={{ width: "100%", borderCollapse: "collapse" }}>
                         <thead><tr><th style={{ ...st.th, fontSize: 12 }}>昵称</th><th style={{ ...st.th, fontSize: 12 }}>报名时间</th><th style={{ ...st.th, fontSize: 12 }}>支付金额</th><th style={{ ...st.th, fontSize: 12 }}>操作</th></tr></thead>
                         <tbody>{enrollModal.enrolledUsers.map((eu, i) => <tr key={i}>
-                            <td style={st.td}><span style={{ fontWeight: 600 }}>{eu.name}</span></td>
+                            <td style={st.td}><span style={{ fontWeight: 600 }}>{euLabel(eu)}</span></td>
                             <td style={st.td}><span style={{ fontSize: 12, color: C.textLight }}>{eu.enrolled_at ? new Date(eu.enrolled_at).toLocaleString("zh-CN") : "-"}</span></td>
                             <td style={st.td}><span style={{ color: C.secondary, fontWeight: 600 }}>{eu.cost != null ? eu.cost : enrollModal.cost > 0 ? `¥${eu.cost != null ? eu.cost : enrollModal.cost}` : "免费"}</span></td>
                             <td style={st.td}><PBtn small danger onClick={() => doAdminCancel(enrollModal, eu.user_id)}>取消报名</PBtn></td>
@@ -337,7 +339,7 @@ const ActivityMgmt = () => {
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     <select style={{ ...st.input, width: 200 }} value={enrollUserId} onChange={e => setEnrollUserId(e.target.value)}>
                         <option value="">选择会员</option>
-                        {allUsers.filter(u => !enrollModal?.enrolledUsers?.some(e => e.user_id === u.id || e.name === u.nickname)).map(u => <option key={u.id} value={u.id}>{u.nickname}</option>)}
+                        {allUsers.filter(u => !enrollModal?.enrolledUsers?.some(e => e.user_id === u.id)).map(u => <option key={u.id} value={u.id}>{userLabel(u)}</option>)}
                     </select>
                     <PBtn small onClick={doAdminEnroll}>确认报名</PBtn>
                     <span style={{ fontSize: 12, color: C.textLight }}>将收取 ¥{enrollModal?.cost || 0}</span>
@@ -351,7 +353,7 @@ const ActivityMgmt = () => {
         {/* Reward distribution modal */}
         <Modal show={!!rewardModal} onClose={() => setRewardModal(null)} title="🏆 发放奖励">
             <p style={{ fontSize: 14, color: C.text, marginBottom: 16 }}>{rewardModal?.title}</p>
-            {rewardModal?.rewards.map(r => <div key={r.rank} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}><span style={{ fontWeight: 700, width: 60 }}>第{r.rank}名</span><select style={{ ...st.input, width: 140 }} value={assignments[r.rank] || ""} onChange={e => setAssignments(a => ({ ...a, [r.rank]: e.target.value }))}><option value="">选择</option>{rewardModal.enrolledUsers.map(u => <option key={u.name} value={u.name}>{u.name}</option>)}</select><span style={{ color: C.warning, fontWeight: 600 }}>¥{r.amount}</span></div>)}
+            {rewardModal?.rewards.map(r => <div key={r.rank} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}><span style={{ fontWeight: 700, width: 60 }}>第{r.rank}名</span><select style={{ ...st.input, width: 140 }} value={assignments[r.rank] || ""} onChange={e => setAssignments(a => ({ ...a, [r.rank]: e.target.value }))}><option value="">选择</option>{rewardModal.enrolledUsers.map(u => <option key={u.name} value={u.name}>{euLabel(u)}</option>)}</select><span style={{ color: C.warning, fontWeight: 600 }}>¥{r.amount}</span></div>)}
             <div style={{ display: "flex", gap: 10, marginTop: 16 }}><PBtn secondary onClick={() => setRewardModal(null)}>取消</PBtn><PBtn onClick={doDistribute}>确认发放</PBtn></div>
         </Modal>
     </div>;
@@ -435,6 +437,8 @@ const parseDateForCompare = (dateStr) => {
 
 const BookingMgmt = () => {
     const { bookings, activities, coaches, allUsers, approveBooking, rejectBooking, adminBookForUser, adminEnrollForUser, adminGetUserCards, DEFAULT_COACH_HOURS, HOURS, getNext7Days, isCoachSlotBooked, slotsRange, slotsDuration } = useStore();
+    const userLabel = (u) => u ? `${u.nickname}（${u.phone || '无手机'}）` : "";
+    const bookingUserLabel = (b) => { const u = allUsers.find(x => x.id === b.userId); return u ? userLabel(u) : b.user; };
     const [typeTab, setTypeTab] = useState("all");
     const [statusTab, setStatusTab] = useState("all");
     const [dateFrom, setDateFrom] = useState("");
@@ -582,7 +586,7 @@ const BookingMgmt = () => {
                     <tbody>{filtered.map(b => <tr key={b.id}>
                         <td style={st.td}><span style={st.badge(SC[b.status] || C.textLight)}>{b.status}{b.refunded ? " (已退)" : ""}</span></td>
                         <td style={st.td}><span style={st.badge(b.type === "教练预约" ? C.primary : C.primaryLight)}>{b.type}</span></td>
-                        <td style={st.td}><span style={{ fontWeight: 600 }}>{b.user}</span></td>
+                        <td style={st.td}><span style={{ fontWeight: 600 }}>{bookingUserLabel(b)}</span></td>
                         <td style={st.td}>{b.targetName || "-"}</td>
                         <td style={st.td}><div style={{ fontSize: 12 }}>{b.detail}</div></td>
                         <td style={st.td}>{b.duration}h</td>
@@ -606,7 +610,7 @@ const BookingMgmt = () => {
         {/* Proxy book coach modal */}
         <Modal show={!!proxyBook} onClose={() => setProxyBook(null)} title="👤 帮用户约课" wide>
             {proxyBook?.step === 1 && <div>
-                <Field label="选择会员"><select style={st.input} value="" onChange={e => selectProxyUser(e.target.value, true)}><option value="">请选择会员</option>{allUsers.map(u => <option key={u.id} value={u.id}>{u.nickname}</option>)}</select></Field>
+                <Field label="选择会员"><select style={st.input} value="" onChange={e => selectProxyUser(e.target.value, true)}><option value="">请选择会员</option>{allUsers.map(u => <option key={u.id} value={u.id}>{userLabel(u)}</option>)}</select></Field>
             </div>}
             {proxyBook?.step === 2 && <div>
                 <div style={{ marginBottom: 12, fontSize: 13 }}>会员: <b>{proxyBook.userName}</b></div>
@@ -643,7 +647,7 @@ const BookingMgmt = () => {
 
         {/* Proxy enroll activity modal */}
         <Modal show={!!proxyEnroll} onClose={() => setProxyEnroll(null)} title="👤 帮用户报名活动">
-            {proxyEnroll?.step === 1 && <Field label="选择会员"><select style={st.input} value="" onChange={e => selectProxyUser(e.target.value, false)}><option value="">请选择会员</option>{allUsers.map(u => <option key={u.id} value={u.id}>{u.nickname}</option>)}</select></Field>}
+            {proxyEnroll?.step === 1 && <Field label="选择会员"><select style={st.input} value="" onChange={e => selectProxyUser(e.target.value, false)}><option value="">请选择会员</option>{allUsers.map(u => <option key={u.id} value={u.id}>{userLabel(u)}</option>)}</select></Field>}
             {proxyEnroll?.step === 2 && <div>
                 <div style={{ marginBottom: 12, fontSize: 13 }}>会员: <b>{proxyEnroll.userName}</b></div>
                 <Field label="选择活动">
@@ -669,7 +673,7 @@ const BookingMgmt = () => {
 
 // ======= MEMBER MANAGEMENT (with add user + detail tabs) =======
 const MemberMgmt = () => {
-    const { allUsers, courses, adminUpdateUser, adminCreateCard, adminUpdateCardRemaining, adminGetUserCards, adminGetUserTransactions, adminCreateUser, refetchUsers } = useStore();
+    const { allUsers, courses, adminUpdateUser, adminCreateCard, adminUpdateCardRemaining, adminGetUserCards, adminGetUserTransactions, adminCreateUser, adminDeleteUser, adminUpdateUserPhone, refetchUsers } = useStore();
     const [addModal, setAddModal] = useState(null);
     const [selectedUser, setSelectedUser] = useState(null);
     const [detailTab, setDetailTab] = useState("basic");
@@ -677,6 +681,8 @@ const MemberMgmt = () => {
     const [userCards, setUserCards] = useState([]);
     const [txLoading, setTxLoading] = useState(false);
     const [search, setSearch] = useState("");
+    const [deleteConfirm, setDeleteConfirm] = useState(null);
+    const [editing, setEditing] = useState(null); // { nickname, phone }
 
     const [newCard, setNewCard] = useState(null);
 
@@ -718,6 +724,34 @@ const MemberMgmt = () => {
         setAddModal(null);
     };
 
+    const doDeleteUser = async () => {
+        if (!deleteConfirm) return;
+        await adminDeleteUser(deleteConfirm.id);
+        setDeleteConfirm(null);
+        if (selectedUser?.id === deleteConfirm.id) setSelectedUser(null);
+    };
+
+    const startEdit = () => setEditing({ nickname: selectedUser.nickname, phone: selectedUser.phone || "" });
+    const cancelEdit = () => setEditing(null);
+    const saveEdit = async () => {
+        if (!editing) return;
+        let updated = false;
+        if (editing.nickname !== selectedUser.nickname) {
+            await adminUpdateUser(selectedUser.id, { nickname: editing.nickname });
+            updated = true;
+        }
+        if (editing.phone !== (selectedUser.phone || "")) {
+            const r = await adminUpdateUserPhone(selectedUser.id, editing.phone);
+            if (!r.ok) { alert(r.msg); return; }
+            updated = true;
+        }
+        if (updated) {
+            const fresh = allUsers.find(u => u.id === selectedUser.id);
+            if (fresh) setSelectedUser({ ...fresh, nickname: editing.nickname, phone: editing.phone });
+        }
+        setEditing(null);
+    };
+
     const filteredUsers = useMemo(() => allUsers.filter(u => !search || u.nickname.toLowerCase().includes(search.toLowerCase()) || (u.phone && u.phone.includes(search))), [allUsers, search]);
 
 
@@ -748,13 +782,27 @@ const MemberMgmt = () => {
         {txLoading ? <Spinner /> : <>
             {/* Basic Info Tab */}
             {detailTab === "basic" && <div style={{ background: C.card, borderRadius: 14, padding: 20, boxShadow: "0 2px 12px rgba(59,45,139,0.06)" }}>
-                <h4 style={{ margin: "0 0 12px", color: C.text }}>会员信息</h4>
-                <div style={{ fontSize: 14, color: C.text, lineHeight: 2 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <h4 style={{ margin: 0, color: C.text }}>会员信息</h4>
+                    {!editing ? <div style={{ display: "flex", gap: 8 }}>
+                        <PBtn small onClick={startEdit}>✏️ 编辑</PBtn>
+                        <PBtn small danger onClick={() => setDeleteConfirm(selectedUser)}>🗑️ 删除</PBtn>
+                    </div> : <div style={{ display: "flex", gap: 8 }}>
+                        <PBtn small secondary onClick={cancelEdit}>取消</PBtn>
+                        <PBtn small onClick={saveEdit}>保存</PBtn>
+                    </div>}
+                </div>
+                {!editing ? <div style={{ fontSize: 14, color: C.text, lineHeight: 2 }}>
                     <div>ID: <b>{selectedUser.id}</b></div>
                     <div>昵称: <b>{selectedUser.nickname}</b></div>
                     <div>手机号: <b>{selectedUser.phone || '未绑定'}</b></div>
                     <div>注册时间: <b>{fmtDateFull(selectedUser.createdAt)}</b></div>
-                </div>
+                </div> : <div style={{ fontSize: 14, color: C.text }}>
+                    <div style={{ marginBottom: 8 }}>ID: <b>{selectedUser.id}</b></div>
+                    <Field label="昵称"><input style={st.input} value={editing.nickname} onChange={e => setEditing(v => ({ ...v, nickname: e.target.value }))} /></Field>
+                    <Field label="手机号"><input style={st.input} value={editing.phone} onChange={e => setEditing(v => ({ ...v, phone: e.target.value.replace(/\D/g, "") }))} maxLength={11} placeholder="11位手机号" /></Field>
+                    <div>注册时间: <b>{fmtDateFull(selectedUser.createdAt)}</b></div>
+                </div>}
             </div>}
 
             {/* All transactions tab */}
@@ -817,7 +865,7 @@ const MemberMgmt = () => {
                     <td style={{ ...st.td, fontWeight: 600, fontFamily: "monospace" }}>{u.phone || <span style={{ color: C.textLight }}>未绑定</span>}</td>
                     <td style={st.td}>{u.nickname}</td>
                     <td style={{ ...st.td, fontSize: 12, color: C.textLight }}>{fmtDateFull(u.createdAt)}</td>
-                    <td style={st.td}><PBtn small secondary onClick={e => { e.stopPropagation(); openUser(u); }}>查看详情</PBtn></td>
+                    <td style={st.td}><div style={{ display: "flex", gap: 4 }}><PBtn small secondary onClick={e => { e.stopPropagation(); openUser(u); }}>详情</PBtn><PBtn small danger onClick={e => { e.stopPropagation(); setDeleteConfirm(u); }}>删除</PBtn></div></td>
                 </tr>)}</tbody>
             </table>
         </div>
@@ -825,6 +873,11 @@ const MemberMgmt = () => {
             <Field label="手机号（必填）"><input style={st.input} value={addModal?.phone || ""} onChange={e => setAddModal(m => ({ ...m, phone: e.target.value.replace(/\D/g, "") }))} placeholder="11位手机号" maxLength={11} /></Field>
             <Field label="昵称（选填）"><input style={st.input} value={addModal?.nickname || ""} onChange={e => setAddModal(m => ({ ...m, nickname: e.target.value }))} placeholder="默认：球友" /></Field>
             <div style={{ display: "flex", gap: 10, marginTop: 8 }}><PBtn secondary onClick={() => setAddModal(null)}>取消</PBtn><PBtn onClick={doAddUser}>创建</PBtn></div>
+        </Modal>
+        <Modal show={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} title="⚠️ 确认删除会员">
+            <p style={{ fontSize: 14, color: C.danger, fontWeight: 600 }}>确定要删除会员 "{deleteConfirm?.nickname}"（{deleteConfirm?.phone || '无手机号'}）吗？</p>
+            <p style={{ fontSize: 13, color: C.textLight }}>此操作将同时删除该用户的所有预约、课程卡、交易记录、帖子和评论，且不可恢复。</p>
+            <div style={{ display: "flex", gap: 10, marginTop: 12 }}><PBtn secondary onClick={() => setDeleteConfirm(null)}>取消</PBtn><PBtn danger onClick={doDeleteUser}>确认删除</PBtn></div>
         </Modal>
     </div>;
 };

@@ -640,6 +640,29 @@ export function StoreProvider({ children }) {
     return { ok: true };
   }, []);
 
+  // ---- ADMIN: Delete user and all related data ----
+  const adminDeleteUser = useCallback(async (uid) => {
+    await supabase.from("comments").delete().eq("user_id", uid);
+    await supabase.from("posts").delete().eq("user_id", uid);
+    await supabase.from("transactions").delete().eq("user_id", uid);
+    await supabase.from("course_cards").delete().eq("user_id", uid);
+    await supabase.from("bookings").delete().eq("user_id", uid);
+    await supabase.from("users").delete().eq("id", uid);
+    await refetchUsers();
+    await refetchBookings();
+    await refetchPosts();
+  }, []);
+
+  // ---- ADMIN: Update user phone (with uniqueness check) ----
+  const adminUpdateUserPhone = useCallback(async (uid, newPhone) => {
+    if (!newPhone || !/^1\d{10}$/.test(newPhone)) return { ok: false, msg: "请输入正确的11位手机号" };
+    const { data: existing } = await supabase.from("users").select("id").eq("phone", newPhone).single();
+    if (existing && existing.id !== uid) return { ok: false, msg: "该手机号已被其他用户占用" };
+    await supabase.from("users").update({ phone: newPhone }).eq("id", uid);
+    await refetchUsers();
+    return { ok: true };
+  }, []);
+
   // ---- ADMIN: Proxy book coach for user ----
   const adminBookForUser = useCallback(async (targetUserId, targetUserName, coach, selectedSlots, dateLabel, payMethod, cardId) => {
     const dur = slotsDuration(selectedSlots);
@@ -663,7 +686,7 @@ export function StoreProvider({ children }) {
 
   // ---- ADMIN: Proxy enroll user in activity ----
   const adminEnrollForUser = useCallback(async (targetUserId, targetUserName, activity) => {
-    if (activity.enrolledUsers.some(e => e.user_id === targetUserId || e.name === targetUserName)) return { ok: false, msg: `${targetUserName}已报名该活动` };
+    if (activity.enrolledUsers.some(e => e.user_id === targetUserId)) return { ok: false, msg: `${targetUserName}已报名该活动` };
     if (activity.enrolledUsers.length >= activity.spots) return { ok: false, msg: "名额已满" };
     if (activity.cost > 0) {
       // Admin proxy: record as wechat payment (no actual charge in test phase)
@@ -712,7 +735,8 @@ export function StoreProvider({ children }) {
     adminSaveActivity, adminDeleteActivity, adminCancelActivity, adminCancelUserEnrollment, adminSaveTable, adminDeleteTable,
     adminToggleTableSlot, adminToggleWeekendDate, adminDeletePost, adminPinPost,
     adminUpdateUser, adminCreateCard, adminUpdateCardRemaining, adminGetUserCards,
-    adminGetUserTransactions, adminCreateUser, adminBookForUser, adminEnrollForUser,
+    adminGetUserTransactions, adminCreateUser, adminDeleteUser, adminUpdateUserPhone,
+    adminBookForUser, adminEnrollForUser,
     adminUpdateCoachClosedDates, adminUpdateCoachClosedSlots, isSlotPastCutoff,
     refetchAll: fetchAll, refetchUsers, refetchBookings,
     DAYS, HOURS, DEFAULT_COACH_HOURS, slotEnd, slotsRange, slotsDuration,
