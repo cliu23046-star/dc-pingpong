@@ -85,7 +85,7 @@ const mapBooking = (r) => ({ id: r.id, userId: r.user_id, user: r.user_name, typ
 const mapPost = (r) => ({ id: r.id, user: r.user_name, avatar: r.user_avatar, time: timeSince(r.created_at), content: r.content, type: r.type, voteYes: r.vote_yes, voteNo: r.vote_no, likes: r.likes, comments: r.comments, pinned: r.is_pinned, voted: false });
 const mapCard = (r) => ({ id: r.id, userId: r.user_id, courseId: r.course_id, name: r.course_name, total: Number(r.total_lessons), remaining: Number(r.remaining_lessons), date: r.purchase_date });
 const mapTx = (r) => ({ id: r.id, userId: r.user_id, desc: r.description, amount: Number(r.amount), time: timeSince(r.created_at), payType: r.type, createdAt: r.created_at });
-const mapUser = (r) => ({ id: r.id, nickname: r.nickname, avatarUrl: r.avatar_url, avatarColor: r.avatar_color || "#6C5CE7", coins: r.coins, createdAt: r.created_at });
+const mapUser = (r) => ({ id: r.id, nickname: r.nickname, avatarUrl: r.avatar_url, avatarColor: r.avatar_color || "#6C5CE7", coins: r.coins, phone: r.phone || null, createdAt: r.created_at });
 
 function timeSince(dateStr) {
   if (!dateStr) return "刚刚";
@@ -610,9 +610,11 @@ export function StoreProvider({ children }) {
   }, []);
 
   // ---- ADMIN: Create user ----
-  const adminCreateUser = useCallback(async (nickname) => {
+  const adminCreateUser = useCallback(async (nickname, phone) => {
     const color = randomAvatarColor();
-    await supabase.from("users").insert({ nickname, avatar_color: color });
+    const user = { nickname, avatar_color: color };
+    if (phone) user.phone = phone;
+    await supabase.from("users").insert(user);
     await refetchUsers();
   }, []);
 

@@ -713,11 +713,11 @@ const MemberMgmt = () => {
 
     const doAddUser = async () => {
         if (!addModal?.nickname) return;
-        await adminCreateUser(addModal.nickname);
+        await adminCreateUser(addModal.nickname, addModal.phone);
         setAddModal(null);
     };
 
-    const filteredUsers = useMemo(() => allUsers.filter(u => !search || u.nickname.toLowerCase().includes(search.toLowerCase())), [allUsers, search]);
+    const filteredUsers = useMemo(() => allUsers.filter(u => !search || u.nickname.toLowerCase().includes(search.toLowerCase()) || (u.phone && u.phone.includes(search))), [allUsers, search]);
 
 
 
@@ -751,6 +751,7 @@ const MemberMgmt = () => {
                 <div style={{ fontSize: 14, color: C.text, lineHeight: 2 }}>
                     <div>ID: <b>{selectedUser.id}</b></div>
                     <div>昵称: <b>{selectedUser.nickname}</b></div>
+                    <div>手机号: <b>{selectedUser.phone || '未绑定'}</b></div>
                     <div>注册时间: <b>{fmtDateFull(selectedUser.createdAt)}</b></div>
                 </div>
             </div>}
@@ -809,10 +810,11 @@ const MemberMgmt = () => {
         <input style={{ ...st.input, marginBottom: 12, maxWidth: 300 }} placeholder="🔍 搜索昵称..." value={search} onChange={e => setSearch(e.target.value)} />
         <div style={{ background: C.card, borderRadius: 12, overflow: "auto", boxShadow: "0 2px 12px rgba(59,45,139,0.06)" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 500 }}>
-                <thead><tr><th style={st.th}>头像</th><th style={st.th}>昵称</th><th style={st.th}>注册时间</th><th style={st.th}>操作</th></tr></thead>
+                <thead><tr><th style={st.th}>头像</th><th style={st.th}>昵称</th><th style={st.th}>手机号</th><th style={st.th}>注册时间</th><th style={st.th}>操作</th></tr></thead>
                 <tbody>{filteredUsers.map(u => <tr key={u.id} style={{ cursor: "pointer" }} onClick={() => openUser(u)}>
                     <td style={st.td}><div style={{ width: 32, height: 32, borderRadius: "50%", background: u.avatarUrl ? `url(${u.avatarUrl}) center/cover` : u.avatarColor || "#6C5CE7", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#fff", fontWeight: 700 }}>{!u.avatarUrl && (u.nickname?.[0] || "?")}</div></td>
                     <td style={st.td}><span style={{ fontWeight: 600 }}>{u.nickname}</span></td>
+                    <td style={{ ...st.td, fontSize: 12, color: u.phone ? C.text : C.textLight }}>{u.phone || '未绑定'}</td>
                     <td style={{ ...st.td, fontSize: 12, color: C.textLight }}>{fmtDateFull(u.createdAt)}</td>
                     <td style={st.td}><PBtn small secondary onClick={e => { e.stopPropagation(); openUser(u); }}>查看详情</PBtn></td>
                 </tr>)}</tbody>
@@ -820,7 +822,7 @@ const MemberMgmt = () => {
         </div>
         <Modal show={!!addModal} onClose={() => setAddModal(null)} title="添加会员">
             <Field label="昵称"><input style={st.input} value={addModal?.nickname || ""} onChange={e => setAddModal(m => ({ ...m, nickname: e.target.value }))} /></Field>
-
+            <Field label="手机号"><input style={st.input} value={addModal?.phone || ""} onChange={e => setAddModal(m => ({ ...m, phone: e.target.value }))} placeholder="可选" /></Field>
             <div style={{ display: "flex", gap: 10, marginTop: 8 }}><PBtn secondary onClick={() => setAddModal(null)}>取消</PBtn><PBtn onClick={doAddUser}>创建</PBtn></div>
         </Modal>
     </div>;
