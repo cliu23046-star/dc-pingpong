@@ -479,7 +479,7 @@ const TablePage = () => {
 
 // ======= PROFILE PAGE =======
 const ProfilePage = () => {
-  const { courseCards, history, bookings, cancelBooking, userName, setUserName, userAvatar, setUserAvatar, userAvatarColor, randomizeAvatar, userId } = useStore();
+  const { courseCards, history, bookings, cancelBooking, userName, setUserName, userAvatar, setUserAvatar, userAvatarColor, randomizeAvatar, userId, userPhone, logout } = useStore();
 
 
   const [editingName, setEditingName] = useState(false);
@@ -512,6 +512,7 @@ const ProfilePage = () => {
         {editingName ? <div style={{ display: "flex", gap: 6, alignItems: "center" }}><input value={tempName} onChange={e => setTempName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { setUserName(tempName); setEditingName(false); } }} style={{ background: "rgba(255,255,255,0.2)", border: "none", borderRadius: 6, padding: "4px 10px", color: "#fff", fontSize: 16, fontWeight: 700, outline: "none", width: 100, textAlign: "center" }} autoFocus /><span onClick={() => { setUserName(tempName); setEditingName(false); }} style={{ cursor: "pointer", fontSize: 14 }}>✓</span></div>
           : <><span style={{ fontWeight: 700, fontSize: 18 }}>{userName}</span><span onClick={() => { setTempName(userName); setEditingName(true); }} style={{ cursor: "pointer", fontSize: 14, opacity: 0.8 }}>✏️</span></>}
       </div>
+      {userPhone && <div style={{ fontSize: 13, opacity: 0.8, marginTop: 4 }}>📱 {userPhone.replace(/(\d{3})\d{4}(\d{4})/, "$1****$2")}</div>}
     </div>
 
     {/* My bookings */}
@@ -562,6 +563,46 @@ const ProfilePage = () => {
       </div>
     </div>}
 
+    {/* Logout */}
+    <div style={{ textAlign: "center", marginTop: 20, paddingBottom: 20 }}>
+      <button onClick={() => { if (window.confirm("确定要退出登录吗？")) logout(); }} style={{ padding: "10px 32px", borderRadius: 8, border: `1.5px solid ${COLORS.danger}`, background: "#fff", color: COLORS.danger, fontWeight: 600, fontSize: 14, cursor: "pointer" }}>退出登录</button>
+    </div>
+
+  </div>;
+};
+
+// ======= LOGIN PAGE =======
+const LoginPage = () => {
+  const { loginWithPhone } = useStore();
+  const [phone, setPhone] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async () => {
+    setError("");
+    if (!/^1\d{10}$/.test(phone)) { setError("请输入正确的11位手机号"); return; }
+    setLoading(true);
+    const result = await loginWithPhone(phone);
+    setLoading(false);
+    if (!result.success) setError(result.msg || "登录失败，请重试");
+  };
+
+  return <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100vh", background: COLORS.bg, fontFamily: "-apple-system,sans-serif", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20 }}>
+    <div style={{ textAlign: "center", marginBottom: 40 }}>
+      <div style={{ fontSize: 48, marginBottom: 8 }}>🏓</div>
+      <div style={{ background: COLORS.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: 28, fontWeight: 800 }}>DC Pingpong</div>
+      <div style={{ color: COLORS.textLight, fontSize: 14, marginTop: 4 }}>你的乒乓球俱乐部</div>
+    </div>
+    <div style={{ background: "#fff", borderRadius: 16, padding: 28, width: "100%", maxWidth: 340, boxShadow: "0 4px 20px rgba(59,45,139,0.08)" }}>
+      <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.text, marginBottom: 16 }}>手机号登录</div>
+      <input type="tel" maxLength={11} placeholder="请输入11位手机号" value={phone} onChange={e => { setPhone(e.target.value.replace(/\D/g, "")); setError(""); }} onKeyDown={e => e.key === "Enter" && handleLogin()} style={{ width: "100%", fontSize: 16, padding: "12px 14px", borderRadius: 10, border: `1.5px solid ${error ? COLORS.danger : "#e8e5f5"}`, background: "#f5f3fa", outline: "none", boxSizing: "border-box", letterSpacing: 1 }} />
+      {error && <div style={{ color: COLORS.danger, fontSize: 12, marginTop: 6 }}>{error}</div>}
+      <button onClick={handleLogin} disabled={loading} style={{ width: "100%", marginTop: 16, padding: "12px", borderRadius: 10, border: "none", background: COLORS.gradient, color: "#fff", fontSize: 15, fontWeight: 700, cursor: loading ? "wait" : "pointer", opacity: loading ? 0.7 : 1 }}>{loading ? "登录中..." : "登录 / 注册"}</button>
+      <div style={{ color: COLORS.textLight, fontSize: 11, marginTop: 12, textAlign: "center" }}>未注册手机号将自动创建账号</div>
+    </div>
+    <div style={{ display: "flex", gap: 20, marginTop: 32 }}>
+      {[["🏓","预约教练"],["📚","购买课程"],["🏟️","预约球台"],["🎯","参加活动"]].map(([icon, text]) => <div key={text} style={{ textAlign: "center" }}><div style={{ fontSize: 24 }}>{icon}</div><div style={{ fontSize: 11, color: COLORS.textLight, marginTop: 2 }}>{text}</div></div>)}
+    </div>
   </div>;
 };
 
@@ -575,6 +616,8 @@ const TABS = [
 export default function App() {
   const [tab, setTab] = useState("coach");
   const store = useStore();
+
+  if (!store.isLoggedIn) return <LoginPage />;
 
   if (store.loading) return <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100vh", background: COLORS.bg, fontFamily: "-apple-system,sans-serif", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column" }}>
     <div style={{ background: COLORS.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: 24, fontWeight: 800, marginBottom: 8 }}>DC Pingpong 🏓</div>

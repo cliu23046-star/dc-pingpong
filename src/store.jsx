@@ -108,16 +108,18 @@ export function StoreProvider({ children }) {
   const [posts, setPosts] = useState([]);
   const [allUsers, setAllUsers] = useState([]);
 
-  // Current user (first user in DB)
+  // Current user
   const [userId, setUserId] = useState(null);
   const [userName, setUserNameState] = useState("球友");
   const [userAvatar, setUserAvatarState] = useState(null);
   const [userAvatarColor, setUserAvatarColor] = useState("#6C5CE7");
+  const [userPhone, setUserPhone] = useState(null);
   const [coins, setCoinsState] = useState(0);
   const [courseCards, setCourseCards] = useState([]);
   const [history, setHistory] = useState([]);
   const [joinedIds, setJoinedIds] = useState([]);
   const [resultModal, setResultModal] = useState(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   // ---- Aggregate open weekend dates across all tables ----
   const openWeekendDates = useMemo(() => {
@@ -155,17 +157,16 @@ export function StoreProvider({ children }) {
     return bookings.some(b => b.type === "教练预约" && b.targetId === coachId && b.date === dateKey && b.slots?.includes(hour) && b.status !== "已取消" && b.status !== "已拒绝");
   }, [bookings]);
 
-  // ---- LOAD ALL DATA ----
+  // ---- LOAD ALL DATA (non-user) ----
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [cRes, crRes, aRes, tRes, bRes, pRes, uRes, auRes] = await Promise.all([
+    const [cRes, crRes, aRes, tRes, bRes, pRes, auRes] = await Promise.all([
       supabase.from("coaches").select("*").order("id"),
       supabase.from("courses").select("*").order("id"),
       supabase.from("activities").select("*").order("id"),
       supabase.from("tables").select("*").order("id"),
       supabase.from("bookings").select("*").order("created_at", { ascending: false }),
       supabase.from("posts").select("*").order("created_at", { ascending: false }),
-      supabase.from("users").select("*").limit(1).single(),
       supabase.from("users").select("*").order("id"),
     ]);
     if (cRes.data) setCoaches(cRes.data.map(mapCoach));
@@ -175,25 +176,43 @@ export function StoreProvider({ children }) {
     if (bRes.data) setBookings(bRes.data.map(mapBooking));
     if (pRes.data) setPosts(pRes.data.map(mapPost));
     if (auRes.data) setAllUsers(auRes.data.map(mapUser));
-    if (uRes.data) {
-      setUserId(uRes.data.id);
-      setUserNameState(uRes.data.nickname);
-      setUserAvatarState(uRes.data.avatar_url);
-      setUserAvatarColor(uRes.data.avatar_color || "#6C5CE7");
-      setCoinsState(uRes.data.coins);
-    }
-    if (uRes.data) {
-      const [cardRes, txRes] = await Promise.all([
-        supabase.from("course_cards").select("*").eq("user_id", uRes.data.id).order("id"),
-        supabase.from("transactions").select("*").eq("user_id", uRes.data.id).order("created_at", { ascending: false }),
-      ]);
-      if (cardRes.data) setCourseCards(cardRes.data.map(mapCard));
-      if (txRes.data) setHistory(txRes.data.map(mapTx));
-    }
     setLoading(false);
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // ---- PHONE LOGIN ----
+  const loginWithPhone = useCallback(async (phone) => {
+    const { data: existing } = await supabase.from("users").select("*").eq("phone", phone).single();
+    let userData = existing;
+    let isNewUser = false;
+    if (!userData) {
+      const { data: created, error } = await supabase.from("users").insert({ phone, nickname: "球友", avatar_color: randomAvatarColor(), coins: 0 }).select().single();
+      if (error) return { success: false, msg: "注册失败: " + (error.message || "") };
+      userData = created;
+      isNewUser = true;
+    }
+    setUserId(userData.id);
+    setUserNameState(userData.nickname || "球友");
+    setUserAvatarState(userData.avatar_url || null);
+    setUserAvatarColor(userData.avatar_color || "#6C5CE7");
+    setUserPhone(userData.phone);
+    setCoinsState(userData.coins || 0);
+    setIsLoggedIn(true);
+    const [cardRes, txRes] = await Promise.all([
+      supabase.from("course_cards").select("*").eq("user_id", userData.id).order("id"),
+      supabase.from("transactions").select("*").eq("user_id", userData.id).order("created_at", { ascending: false }),
+    ]);
+    if (cardRes.data) setCourseCards(cardRes.data.map(mapCard));
+    if (txRes.data) setHistory(txRes.data.map(mapTx));
+    return { success: true, isNewUser };
+  }, []);
+
+  const logout = useCallback(() => {
+    setUserId(null); setUserNameState("球友"); setUserAvatarState(null);
+    setUserAvatarColor("#6C5CE7"); setUserPhone(null); setCoinsState(0);
+    setCourseCards([]); setHistory([]); setJoinedIds([]); setIsLoggedIn(false);
+  }, []);
 
   // Refresh helpers
   const refetchCoaches = async () => { const { data } = await supabase.from("coaches").select("*").order("id"); if (data) setCoaches(data.map(mapCoach)); };
@@ -610,12 +629,15 @@ export function StoreProvider({ children }) {
   }, []);
 
   // ---- ADMIN: Create user ----
-  const adminCreateUser = useCallback(async (nickname, phone) => {
+  const adminCreateUser = useCallback(async (phone, nickname) => {
+    if (!phone || !/^1\d{10}$/.test(phone)) return { ok: false, msg: "请输入正确的11位手机号" };
+    const { data: existing } = await supabase.from("users").select("id").eq("phone", phone).single();
+    if (existing) return { ok: false, msg: "该手机号已存在" };
     const color = randomAvatarColor();
-    const user = { nickname, avatar_color: color };
-    if (phone) user.phone = phone;
+    const user = { phone, nickname: nickname || "球友", avatar_color: color, coins: 0 };
     await supabase.from("users").insert(user);
     await refetchUsers();
+    return { ok: true };
   }, []);
 
   // ---- ADMIN: Proxy book coach for user ----
@@ -678,10 +700,11 @@ export function StoreProvider({ children }) {
 
   const value = {
     loading, coaches, courses, activities, tables, bookings, posts, allUsers,
-    courseCards, history, joinedIds, resultModal,
+    courseCards, history, joinedIds, resultModal, isLoggedIn, userPhone,
     userName, userAvatar, userAvatarColor, userId,
     openWeekendDates, getSlotOccupancy, totalTables, isCoachSlotBooked,
     setResultModal, setUserName, setUserAvatar, randomizeAvatar,
+    loginWithPhone, logout,
     bookCoachWechat, bookCoachCard, buyCourse, joinActivity, cancelActivityEnrollment, bookTable, cancelBooking,
     addPost, editPost, deletePost, likePost, votePost, fetchComments, addComment,
     approveBooking, rejectBooking, distributeReward,
