@@ -29,6 +29,19 @@ function getNext7Days() {
   return result;
 }
 
+function getNext30Days() {
+  const result = [];
+  const now = chinaDate();
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(now);
+    d.setDate(d.getDate() + i + 1);
+    const dow = d.getDay();
+    const dateStr = `${d.getMonth() + 1}/${d.getDate()}`;
+    result.push({ date: d, label: formatDateLabel(d), dateKey: dateStr, weekday: DAY_MAP[dow], isWeekend: dow === 0 || dow === 6 });
+  }
+  return result;
+}
+
 const slotEnd = (s) => { const i = HOURS.indexOf(s); return i >= 0 && i < HOURS.length - 1 ? HOURS[i + 1] : "21:00"; };
 const slotsRange = (slots) => { if (!slots || slots.length === 0) return ""; const sorted = [...slots].sort((a, b) => HOURS.indexOf(a) - HOURS.indexOf(b)); return `${sorted[0]}-${slotEnd(sorted[sorted.length - 1])}`; };
 const slotsDuration = (slots) => (slots?.length || 0) * 0.5;
@@ -134,23 +147,59 @@ export function StoreProvider({ children }) {
   // ---- Table occupancy calculator ----
   const getSlotOccupancy = useCallback((dateKey, hour) => {
     let occupied = 0;
-    bookings.forEach(b => {
-      if (b.type === "教练预约" && b.date === dateKey && b.slots?.includes(hour) && b.status !== "已取消" && b.status !== "已拒绝") {
-        occupied += 1;
-      }
+    // Admin-closed tables
+    const slot = `${hour}-${slotEnd(hour)}`;
+    tables.forEach(t => {
+      if (t.status !== '正常') return;
+      if ((t.unavailableSlots || []).some(s => s.dateKey === dateKey && s.hour === slot)) occupied++;
     });
+    // Coach bookings
+    bookings.forEach(b => {
+      if (b.type === "教练预约" && b.date === dateKey && b.slots?.includes(hour) && b.status !== "已取消" && b.status !== "已拒绝") occupied += 1;
+    });
+    // Activity occupation
     activities.forEach(a => {
-      if ((a.occupiedTimeSlots || []).includes(hour) && a.date === dateKey && a.occupiedTableCount > 0 && a.status !== "已取消") {
-        occupied += a.occupiedTableCount;
-      }
+      if ((a.occupiedTimeSlots || []).includes(hour) && a.date === dateKey && a.occupiedTableCount > 0 && a.status !== "已取消") occupied += a.occupiedTableCount;
     });
+    // Table bookings
     bookings.forEach(b => {
-      if (b.type === "球台预约" && b.date === dateKey && b.slots?.includes(hour) && b.status !== "已取消" && b.status !== "已拒绝") {
-        occupied += 1;
-      }
+      if (b.type === "球台预约" && b.date === dateKey && b.slots?.includes(hour) && b.status !== "已取消" && b.status !== "已拒绝") occupied += 1;
     });
     return { occupied, available: Math.max(0, totalTables - occupied), full: occupied >= totalTables };
-  }, [bookings, activities, totalTables]);
+  }, [bookings, activities, totalTables, tables]);
+
+  // ---- Detailed slot status for user-side display ----
+  const getSlotStatus = useCallback((dateKey, hour) => {
+    // Check how many tables are admin-closed for this slot
+    let adminClosed = 0;
+    const slot = `${hour}-${slotEnd(hour)}`;
+    tables.forEach(t => {
+      if (t.status !== '正常') return;
+      if ((t.unavailableSlots || []).some(s => s.dateKey === dateKey && s.hour === slot)) adminClosed++;
+    });
+
+    // Check activity occupation
+    let activityOccupied = 0;
+    activities.forEach(a => {
+      if ((a.occupiedTimeSlots || []).includes(hour) && a.date === dateKey && a.occupiedTableCount > 0 && a.status !== '已取消') {
+        activityOccupied += a.occupiedTableCount;
+      }
+    });
+
+    // Check bookings
+    let coachBooked = 0;
+    let tableBooked = 0;
+    bookings.forEach(b => {
+      if (b.date !== dateKey || !b.slots?.includes(hour)) return;
+      if (b.status === '已取消' || b.status === '已拒绝') return;
+      if (b.type === '教练预约') coachBooked++;
+      if (b.type === '球台预约') tableBooked++;
+    });
+
+    const occupied = adminClosed + activityOccupied + coachBooked + tableBooked;
+    const available = Math.max(0, totalTables - occupied);
+    return { occupied, available, full: occupied >= totalTables, adminClosed, activityOccupied, coachBooked, tableBooked };
+  }, [tables, bookings, activities, totalTables]);
 
   // ---- Coach slot occupancy: check if a coach+date+hour is already booked ----
   const isCoachSlotBooked = useCallback((coachId, dateKey, hour) => {
@@ -725,7 +774,7 @@ export function StoreProvider({ children }) {
     loading, coaches, courses, activities, tables, bookings, posts, allUsers,
     courseCards, history, joinedIds, resultModal, isLoggedIn, userPhone,
     userName, userAvatar, userAvatarColor, userId,
-    openWeekendDates, getSlotOccupancy, totalTables, isCoachSlotBooked,
+    openWeekendDates, getSlotOccupancy, getSlotStatus, totalTables, isCoachSlotBooked, setTables,
     setResultModal, setUserName, setUserAvatar, randomizeAvatar,
     loginWithPhone, logout,
     bookCoachWechat, bookCoachCard, buyCourse, joinActivity, cancelActivityEnrollment, bookTable, cancelBooking,
@@ -740,7 +789,7 @@ export function StoreProvider({ children }) {
     adminUpdateCoachClosedDates, adminUpdateCoachClosedSlots, isSlotPastCutoff,
     refetchAll: fetchAll, refetchUsers, refetchBookings,
     DAYS, HOURS, DEFAULT_COACH_HOURS, slotEnd, slotsRange, slotsDuration,
-    formatDateLabel, getWorkdays, getNext7Days, chinaDate, COACH_PRICE: 80,
+    formatDateLabel, getWorkdays, getNext7Days, getNext30Days, chinaDate, COACH_PRICE: 80,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
@@ -752,4 +801,4 @@ export function useStore() {
   return ctx;
 }
 
-export { DAYS, HOURS, DEFAULT_COACH_HOURS, slotEnd, slotsRange, slotsDuration, formatDateLabel, getWorkdays, getNext7Days, chinaDate };
+export { DAYS, HOURS, DEFAULT_COACH_HOURS, slotEnd, slotsRange, slotsDuration, formatDateLabel, getWorkdays, getNext7Days, getNext30Days, chinaDate };

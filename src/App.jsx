@@ -386,16 +386,15 @@ const ActivityPage = () => {
   </div>;
 };
 
-// ======= TABLE PAGE (pool-based availability) =======
+// ======= TABLE PAGE (pool-based availability with detailed status) =======
 const TablePage = () => {
-  const { tables, bookTable, HOURS, slotEnd, slotsRange, slotsDuration, getSlotOccupancy, getWorkdays, openWeekendDates, totalTables } = useStore();
+  const { tables, bookTable, HOURS, slotEnd, slotsRange, slotsDuration, getSlotOccupancy, getSlotStatus, getWorkdays, openWeekendDates, totalTables } = useStore();
   const dates = useMemo(() => getWorkdays(3, openWeekendDates), [openWeekendDates]);
   const [selDate, setSelDate] = useState(null);
   const [selSlots, setSelSlots] = useState([]);
   const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState(null);
 
-  // Initialize to first available date
   const dateKey = selDate || (dates.length > 0 ? dates[0].label : null);
   const dateKeyShort = dateKey?.split(" ")[0];
 
@@ -429,11 +428,39 @@ const TablePage = () => {
     setShowConfirm(true);
   };
 
+  // Get slot label showing reason for unavailability
+  const getSlotLabel = (h) => {
+    const status = getSlotStatus ? getSlotStatus(dateKeyShort, h) : null;
+    const occ = getSlotOccupancy(dateKeyShort, h);
+    if (!status) return occ.full ? "已满" : `剩${occ.available}张`;
+    if (occ.full) {
+      if (status.adminClosed > 0 && status.adminClosed >= totalTables) return "不可用";
+      if (status.activityOccupied > 0) return "活动占用";
+      return "已满";
+    }
+    return `剩${occ.available}张`;
+  };
+
+  const getSlotColor = (h) => {
+    const status = getSlotStatus ? getSlotStatus(dateKeyShort, h) : null;
+    const occ = getSlotOccupancy(dateKeyShort, h);
+    if (!status || !occ.full) return null;
+    if (status.adminClosed > 0 && status.adminClosed >= totalTables) return "#999";
+    if (status.activityOccupied > 0) return "#F97316";
+    return COLORS.danger;
+  };
+
   return <div style={{ padding: "16px 0" }}><h2 style={{ margin: "0 0 12px", color: COLORS.text, fontSize: 18 }}>🏟️ 租球台</h2>
     <div style={{ display: "flex", gap: 8, overflowX: "auto", marginBottom: 14, paddingBottom: 4 }}>
       {dates.map(d => <button key={d.label} onClick={() => { setSelDate(d.label); setSelSlots([]); setError(null); }} style={{ padding: "6px 14px", borderRadius: 10, border: "none", fontWeight: 600, fontSize: 13, cursor: "pointer", background: dateKey === d.label ? COLORS.gradient : d.isWeekend ? "#FFF0E5" : "#E8E5F0", color: dateKey === d.label ? "#fff" : COLORS.text, whiteSpace: "nowrap" }}>{d.label}{d.isWeekend ? " 🌟" : ""}</button>)}
     </div>
-    <div style={{ fontSize: 12, color: COLORS.textLight, marginBottom: 12 }}>共 {totalTables} 张球台 · ¥{avgPrice}/时 · 点击可用时段多选连续格子，最低1小时</div>
+    <div style={{ fontSize: 12, color: COLORS.textLight, marginBottom: 8 }}>共 {totalTables} 张球台 · ¥{avgPrice}/时 · 点击可用时段多选连续格子，最低1小时</div>
+    <div style={{ display: "flex", gap: 10, marginBottom: 12, fontSize: 11, color: COLORS.textLight }}>
+      <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: COLORS.success }} />可用</span>
+      <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: "#999" }} />不可用</span>
+      <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: "#F97316" }} />活动占用</span>
+      <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: COLORS.danger }} />已满</span>
+    </div>
 
     {/* Availability grid */}
     <div style={{ background: COLORS.card, borderRadius: 14, padding: 14, boxShadow: "0 2px 10px rgba(59,45,139,0.06)" }}>
@@ -441,17 +468,19 @@ const TablePage = () => {
         {HOURS.map(h => {
           const occ = getSlotOccupancy(dateKeyShort, h);
           const sel = selSlots.includes(h);
+          const slotLabel = getSlotLabel(h);
+          const slotColor = getSlotColor(h);
           return <button key={h} disabled={occ.full} onClick={() => toggleSlot(h)} style={{
             padding: "6px 10px", borderRadius: 8,
             border: sel ? `2px solid ${COLORS.secondary}` : "2px solid transparent",
             fontSize: 12, fontWeight: 600, cursor: occ.full ? "not-allowed" : "pointer",
-            background: occ.full ? "#eee" : sel ? COLORS.gradientPink : "#E8E5F0",
-            color: occ.full ? "#ccc" : sel ? "#fff" : COLORS.text,
+            background: occ.full ? (slotColor ? slotColor + "12" : "#eee") : sel ? COLORS.gradientPink : "#E8E5F0",
+            color: occ.full ? (slotColor || "#ccc") : sel ? "#fff" : COLORS.text,
             transition: "all .15s", textAlign: "center", minWidth: 54,
           }}>
             <div>{h}</div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: occ.full ? COLORS.danger : sel ? "#fff" : COLORS.success, marginTop: 2 }}>
-              {occ.full ? "已满" : `剩${occ.available}张`}
+            <div style={{ fontSize: 10, fontWeight: 700, color: occ.full ? (slotColor || COLORS.danger) : sel ? "#fff" : COLORS.success, marginTop: 2 }}>
+              {slotLabel}
             </div>
           </button>;
         })}

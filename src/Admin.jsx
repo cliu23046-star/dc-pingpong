@@ -41,9 +41,83 @@ const NAV = [
     { id: "community", icon: "💬", label: "社区管理" },
 ];
 
+// ======= UNIFIED DATE PICKER (30 days) =======
+const DatePicker = ({ value, onChange, label }) => {
+    const { getNext30Days } = useStore();
+    const days = useMemo(() => getNext30Days(), []);
+    return <Field label={label || "选择日期"}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", maxHeight: 120, overflow: "auto", padding: 4 }}>
+            {days.map(d => <button key={d.dateKey} onClick={() => onChange(d.dateKey, d)} style={{ padding: "6px 12px", borderRadius: 8, border: "none", fontWeight: 600, fontSize: 12, cursor: "pointer", background: value === d.dateKey ? C.gradient : d.isWeekend ? "#FFF0E5" : "#f0f0f0", color: value === d.dateKey ? "#fff" : C.text, whiteSpace: "nowrap" }}>{d.label}</button>)}
+        </div>
+    </Field>;
+};
+
+// ======= UNIFIED DATE RANGE PICKER (30 days) =======
+const DateRangePicker = ({ from, to, onFromChange, onToChange, label }) => {
+    const { getNext30Days } = useStore();
+    const days = useMemo(() => getNext30Days(), []);
+    const allDates = useMemo(() => {
+        // Also include past 30 days for filtering historical data
+        const result = [];
+        const now = new Date();
+        for (let i = 30; i >= 1; i--) {
+            const d = new Date(now); d.setDate(d.getDate() - i);
+            const dow = d.getDay();
+            const DAY_MAP = { 0: "周日", 1: "周一", 2: "周二", 3: "周三", 4: "周四", 5: "周五", 6: "周六" };
+            const dateStr = `${d.getMonth() + 1}/${d.getDate()}`;
+            result.push({ dateKey: dateStr, label: `${dateStr} ${DAY_MAP[dow]}`, isWeekend: dow === 0 || dow === 6, isPast: true });
+        }
+        // Today
+        const dow = now.getDay();
+        const DAY_MAP = { 0: "周日", 1: "周一", 2: "周二", 3: "周三", 4: "周四", 5: "周五", 6: "周六" };
+        result.push({ dateKey: `${now.getMonth() + 1}/${now.getDate()}`, label: `${now.getMonth() + 1}/${now.getDate()} ${DAY_MAP[dow]}`, isWeekend: dow === 0 || dow === 6, isToday: true });
+        days.forEach(d => result.push({ ...d, isFuture: true }));
+        return result;
+    }, [days]);
+
+    return <Field label={label || "日期范围"}>
+        <div style={{ display: "flex", gap: 12, alignItems: "start" }}>
+            <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, color: C.textLight, marginBottom: 4 }}>开始日期</div>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", maxHeight: 100, overflow: "auto", padding: 4, border: `1px solid ${C.primary}15`, borderRadius: 8 }}>
+                    {from && <button onClick={() => onFromChange("")} style={{ padding: "4px 8px", borderRadius: 6, border: "none", fontSize: 11, cursor: "pointer", background: C.danger + "15", color: C.danger, fontWeight: 600 }}>清除</button>}
+                    {allDates.map(d => <button key={"f-" + d.dateKey} onClick={() => onFromChange(d.dateKey)} style={{ padding: "4px 8px", borderRadius: 6, border: "none", fontSize: 11, cursor: "pointer", fontWeight: 600, background: from === d.dateKey ? C.gradient : d.isToday ? C.warning + "20" : "#f0f0f0", color: from === d.dateKey ? "#fff" : d.isPast ? C.textLight : C.text, whiteSpace: "nowrap" }}>{d.dateKey}{d.isToday ? " 今" : ""}</button>)}
+                </div>
+            </div>
+            <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, color: C.textLight, marginBottom: 4 }}>结束日期</div>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", maxHeight: 100, overflow: "auto", padding: 4, border: `1px solid ${C.primary}15`, borderRadius: 8 }}>
+                    {to && <button onClick={() => onToChange("")} style={{ padding: "4px 8px", borderRadius: 6, border: "none", fontSize: 11, cursor: "pointer", background: C.danger + "15", color: C.danger, fontWeight: 600 }}>清除</button>}
+                    {allDates.map(d => <button key={"t-" + d.dateKey} onClick={() => onToChange(d.dateKey)} style={{ padding: "4px 8px", borderRadius: 6, border: "none", fontSize: 11, cursor: "pointer", fontWeight: 600, background: to === d.dateKey ? C.gradient : d.isToday ? C.warning + "20" : "#f0f0f0", color: to === d.dateKey ? "#fff" : d.isPast ? C.textLight : C.text, whiteSpace: "nowrap" }}>{d.dateKey}{d.isToday ? " 今" : ""}</button>)}
+                </div>
+            </div>
+        </div>
+    </Field>;
+};
+
+// ======= UNIFIED SLOT PICKER (0.5h units, 09:00-21:00) =======
+const SlotPicker = ({ value, onChange, multi, label }) => {
+    const { HOURS } = useStore();
+    const toggle = (h) => {
+        if (!multi) { onChange(h); return; }
+        const prev = value || [];
+        if (prev.includes(h)) onChange(prev.filter(x => x !== h));
+        else onChange([...prev, h].sort((a, b) => HOURS.indexOf(a) - HOURS.indexOf(b)));
+    };
+    const selected = multi ? (value || []) : [];
+    return <Field label={label || "选择时段"}>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {HOURS.map(h => {
+                const sel = multi ? selected.includes(h) : value === h;
+                return <button key={h} onClick={() => toggle(h)} style={{ padding: "5px 10px", borderRadius: 6, border: sel ? `2px solid ${C.secondary}` : "2px solid transparent", fontSize: 12, fontWeight: 600, cursor: "pointer", background: sel ? C.secondary + "15" : "#f0f0f0", color: sel ? C.secondary : C.text, minWidth: 50, textAlign: "center" }}>{h}</button>;
+            })}
+        </div>
+    </Field>;
+};
+
 // ======= COACH MANAGEMENT =======
 const CoachMgmt = () => {
-    const { coaches, adminSaveCoach, adminDeleteCoach, adminUpdateCoachClosedSlots, bookings, DAYS, HOURS, DEFAULT_COACH_HOURS, getNext7Days, isCoachSlotBooked, slotsRange, slotsDuration } = useStore();
+    const { coaches, adminSaveCoach, adminDeleteCoach, adminUpdateCoachClosedSlots, bookings, HOURS, DEFAULT_COACH_HOURS, getNext30Days, isCoachSlotBooked, slotsRange, slotsDuration } = useStore();
     const [modal, setModal] = useState(null);
     const [saving, setSaving] = useState(false);
     const [historyCoach, setHistoryCoach] = useState(null);
@@ -62,7 +136,7 @@ const CoachMgmt = () => {
         setSaving(false); setModal(null);
     };
 
-    const calDays = useMemo(() => getNext7Days(), []);
+    const calDays = useMemo(() => getNext30Days(), []);
 
     // Lesson history
     const coachLessons = useMemo(() => {
@@ -120,7 +194,7 @@ const CoachMgmt = () => {
             <div style={{ display: "flex", gap: 10, marginTop: 8 }}><PBtn secondary onClick={() => setModal(null)}>取消</PBtn><PBtn onClick={save} disabled={saving}>{saving ? "保存中..." : "保存"}</PBtn></div>
         </Modal>
 
-        {/* Close-slot calendar grid modal */}
+        {/* Close-slot calendar grid modal — now 30 days */}
         <Modal show={!!slotsCoach} onClose={() => setSlotsCoach(null)} title={`📅 ${slotsCoach?.name || ""} — 时段管理`} wide>
             <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
                 <span style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}><span style={{ display: "inline-block", width: 14, height: 14, borderRadius: 3, background: C.success + "30" }}></span>可约</span>
@@ -128,7 +202,7 @@ const CoachMgmt = () => {
                 <span style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}><span style={{ display: "inline-block", width: 14, height: 14, borderRadius: 3, background: C.primary + "30" }}></span>已被预约</span>
             </div>
             <p style={{ fontSize: 12, color: C.textLight, margin: "0 0 12px" }}>默认全时段可约（10:00-21:00），点击切换关闭/开放。已被预约的时段不可关闭。</p>
-            <div style={{ overflow: "auto" }}>
+            <div style={{ overflow: "auto", maxHeight: 500 }}>
                 <table style={{ borderCollapse: "collapse", fontSize: 11 }}>
                     <thead><tr><th style={{ padding: "6px 8px", background: "#f8f7fc", position: "sticky", left: 0, zIndex: 1 }}>时段</th>
                         {calDays.map(d => <th key={d.dateKey} style={{ padding: "6px 10px", background: "#f8f7fc", whiteSpace: "nowrap", fontWeight: 600, fontSize: 12 }}>{d.dateKey}<br /><span style={{ fontWeight: 400, color: C.textLight }}>{d.weekday}</span></th>)}
@@ -149,14 +223,9 @@ const CoachMgmt = () => {
             </div>
         </Modal>
 
-        {/* Lesson history modal */}
+        {/* Lesson history modal — date range now uses DateRangePicker */}
         <Modal show={!!historyCoach} onClose={() => setHistoryCoach(null)} title={`📝 ${historyCoach?.name || ""} 代课记录`} wide>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: C.textLight }}>日期范围:</span>
-                <input style={{ ...st.input, width: 100 }} placeholder="开始 M/D" value={historyFrom} onChange={e => setHistoryFrom(e.target.value)} />
-                <span style={{ color: C.textLight }}>—</span>
-                <input style={{ ...st.input, width: 100 }} placeholder="结束 M/D" value={historyTo} onChange={e => setHistoryTo(e.target.value)} />
-            </div>
+            <DateRangePicker from={historyFrom} to={historyTo} onFromChange={setHistoryFrom} onToChange={setHistoryTo} label="日期范围筛选" />
             {coachLessons.length === 0 ? <div style={{ color: C.textLight, textAlign: "center", padding: 24 }}>暂无代课记录</div> :
                 <div style={{ maxHeight: 320, overflow: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -216,22 +285,58 @@ const CourseMgmt = () => {
     </div>;
 };
 
-// ======= ACTIVITY MANAGEMENT =======
+// ======= ACTIVITY MANAGEMENT (reworked with date/time pickers) =======
 const ActivityMgmt = () => {
-    const { activities, allUsers, tables, distributeReward, adminSaveActivity, adminDeleteActivity, adminCancelActivity, adminCancelUserEnrollment, adminEnrollForUser } = useStore();
+    const { activities, allUsers, tables, HOURS, slotEnd, distributeReward, adminSaveActivity, adminDeleteActivity, adminCancelActivity, adminCancelUserEnrollment, adminEnrollForUser } = useStore();
     const userLabel = (u) => u ? `${u.nickname}（${u.phone || '无手机'}）` : "";
     const euLabel = (eu) => { const u = allUsers.find(x => x.id === eu.user_id); return u ? userLabel(u) : eu.name; };
     const [modal, setModal] = useState(null);
     const [rewardModal, setRewardModal] = useState(null);
     const [assignments, setAssignments] = useState({});
-    const [enrollModal, setEnrollModal] = useState(null); // { activity }
+    const [enrollModal, setEnrollModal] = useState(null);
     const [enrollUserId, setEnrollUserId] = useState("");
     const [enrollMsg, setEnrollMsg] = useState(null);
-    const empty = { title: "", emoji: "🎯", type: "group", date: "", time: "", location: "", spots: 0, cost: 0, rewards: [], enrolledUsers: [], rewardDistributed: false, tableId: null, tableSlot: null, status: "未开始", occupiedTableCount: 0, occupiedTimeSlots: [], minParticipants: 0 };
-    const save = () => { const item = { ...modal, rewards: modal._rewards || modal.rewards }; delete item._rewards; adminSaveActivity(item); setModal(null); };
+    const empty = { title: "", emoji: "🎯", type: "group", date: "", startTime: "", endTime: "", time: "", location: "", spots: 0, cost: 0, rewards: [], enrolledUsers: [], rewardDistributed: false, tableId: null, tableSlot: null, status: "未开始", occupiedTableCount: 0, occupiedTimeSlots: [], minParticipants: 0 };
+
+    // Auto-generate occupied time slots from start/end time
+    const generateOccupiedSlots = (startTime, endTime) => {
+        if (!startTime || !endTime) return [];
+        const si = HOURS.indexOf(startTime);
+        const ei = HOURS.indexOf(endTime);
+        if (si < 0 || ei < 0 || si >= ei) return [];
+        return HOURS.slice(si, ei);
+    };
+
+    const save = () => {
+        const item = { ...modal, rewards: modal._rewards || modal.rewards };
+        // Auto-generate occupiedTimeSlots from start/end time
+        item.occupiedTimeSlots = generateOccupiedSlots(item.startTime, item.endTime);
+        item.time = item.startTime && item.endTime ? `${item.startTime}-${item.endTime}` : item.time;
+        delete item._rewards;
+        delete item.startTime;
+        delete item.endTime;
+        adminSaveActivity(item);
+        setModal(null);
+    };
     const del = (id) => adminDeleteActivity(id);
     const openReward = (a) => { setRewardModal(a); setAssignments({}); };
     const doDistribute = () => { const ra = rewardModal.rewards.map(r => ({ rank: r.rank, amount: r.amount, userName: assignments[r.rank] || "" })).filter(r => r.userName); distributeReward(rewardModal.id, ra); setRewardModal(null); };
+
+    const openEditActivity = (a) => {
+        // Parse start/end time from time field or occupiedTimeSlots
+        let startTime = "", endTime = "";
+        if (a.time && a.time.includes("-")) {
+            const parts = a.time.split("-");
+            startTime = parts[0];
+            endTime = parts[1];
+        } else if (a.occupiedTimeSlots && a.occupiedTimeSlots.length > 0) {
+            const sorted = [...a.occupiedTimeSlots].sort((x, y) => HOURS.indexOf(x) - HOURS.indexOf(y));
+            startTime = sorted[0];
+            const lastIdx = HOURS.indexOf(sorted[sorted.length - 1]);
+            endTime = lastIdx < HOURS.length - 1 ? HOURS[lastIdx + 1] : "21:00";
+        }
+        setModal({ ...a, startTime, endTime, _rewards: [...a.rewards] });
+    };
 
     const doAdminCancel = async (activity, uid) => {
         const r = await adminCancelUserEnrollment(activity, uid);
@@ -247,7 +352,6 @@ const ActivityMgmt = () => {
         else setEnrollMsg({ type: "fail", msg: r?.msg || "操作失败" });
     };
 
-    // Check if activity time has passed and participants are insufficient
     const isUnderstaffed = (a) => {
         if (a.minParticipants <= 0 || a.enrolledUsers.length >= a.minParticipants || a.status === "已取消") return false;
         if (!a.date) return false;
@@ -258,6 +362,9 @@ const ActivityMgmt = () => {
         const actDate = new Date(now.getFullYear(), mon - 1, day, timeParts[0] || 9, timeParts[1] || 0);
         return now >= actDate;
     };
+
+    // Preview of auto-generated occupied slots
+    const previewSlots = modal ? generateOccupiedSlots(modal.startTime, modal.endTime) : [];
 
     return <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><h2 style={{ margin: 0, color: C.text }}>🎯 活动管理</h2><PBtn onClick={() => setModal({ ...empty, _rewards: [] })}>+ 添加活动</PBtn></div>
@@ -275,10 +382,10 @@ const ActivityMgmt = () => {
                         </span>}
                     </td>
                     <td style={st.td}><span style={{ fontSize: 12, color: C.textLight }}>{a.minParticipants || "-"}</span></td>
-                    <td style={st.td}>{a.tableId ? tables.find(t => t.id === a.tableId)?.name || "-" : "-"}</td>
+                    <td style={st.td}>{a.occupiedTableCount > 0 ? <span style={{ color: C.orange, fontWeight: 600 }}>{a.occupiedTableCount}张</span> : "-"}</td>
                     <td style={st.td}>{a.type === "match" && a.rewards.length > 0 ? <span style={{ color: C.warning, fontWeight: 600 }}>🏆 {a.rewards.length}档</span> : "-"}</td>
                     <td style={st.td}><div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                        <PBtn small secondary onClick={() => setModal({ ...a, _rewards: [...a.rewards] })}>编辑</PBtn>
+                        <PBtn small secondary onClick={() => openEditActivity(a)}>编辑</PBtn>
                         <PBtn small secondary onClick={() => setEnrollModal(a)}>报名管理</PBtn>
                         {a.type === "match" && a.rewards.length > 0 && !a.rewardDistributed && <PBtn small onClick={() => openReward(a)}>发奖</PBtn>}
                         {a.rewardDistributed && <span style={st.badge(C.success)}>已发奖</span>}
@@ -298,17 +405,53 @@ const ActivityMgmt = () => {
             </div>)}
         </div>}
 
-        {/* Edit modal */}
+        {/* Edit modal — reworked with date/time pickers */}
         <Modal show={!!modal} onClose={() => setModal(null)} title={modal?.id ? "编辑活动" : "添加活动"} wide>
             <div style={{ display: "flex", gap: 20 }}>
                 <div style={{ flex: 1 }}>
                     <Field label="活动名"><input style={st.input} value={modal?.title || ""} onChange={e => setModal(m => ({ ...m, title: e.target.value }))} /></Field>
-                    <div style={{ display: "flex", gap: 12 }}><div style={{ flex: 1 }}><Field label="类型"><select style={st.input} value={modal?.type || "group"} onChange={e => setModal(m => ({ ...m, type: e.target.value }))}><option value="group">团课</option><option value="match">比赛</option></select></Field></div><div style={{ flex: 1 }}><Field label="日期"><input style={st.input} value={modal?.date || ""} onChange={e => setModal(m => ({ ...m, date: e.target.value }))} /></Field></div></div>
-                    <div style={{ display: "flex", gap: 12 }}><div style={{ flex: 1 }}><Field label="时间"><input style={st.input} value={modal?.time || ""} onChange={e => setModal(m => ({ ...m, time: e.target.value }))} /></Field></div><div style={{ flex: 1 }}><Field label="地点"><input style={st.input} value={modal?.location || ""} onChange={e => setModal(m => ({ ...m, location: e.target.value }))} /></Field></div></div>
-                    <div style={{ display: "flex", gap: 12 }}><div style={{ flex: 1 }}><Field label="名额"><input type="number" style={st.input} value={modal?.spots || ""} onChange={e => setModal(m => ({ ...m, spots: Number(e.target.value) }))} /></Field></div><div style={{ flex: 1 }}><Field label="费用"><input type="number" style={st.input} value={modal?.cost || ""} onChange={e => setModal(m => ({ ...m, cost: Number(e.target.value) }))} /></Field></div></div>
+                    <div style={{ display: "flex", gap: 12 }}>
+                        <div style={{ flex: 1 }}><Field label="类型"><select style={st.input} value={modal?.type || "group"} onChange={e => setModal(m => ({ ...m, type: e.target.value }))}><option value="group">团课</option><option value="match">比赛</option></select></Field></div>
+                        <div style={{ flex: 1 }}><Field label="地点"><input style={st.input} value={modal?.location || ""} onChange={e => setModal(m => ({ ...m, location: e.target.value }))} /></Field></div>
+                    </div>
+
+                    {/* Date from picker */}
+                    <DatePicker value={modal?.date} onChange={(dk) => setModal(m => ({ ...m, date: dk }))} label="活动日期" />
+
+                    {/* Start time picker */}
+                    <Field label="开始时间">
+                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                            {HOURS.map(h => <button key={h} onClick={() => setModal(m => ({ ...m, startTime: h }))} style={{ padding: "5px 10px", borderRadius: 6, border: modal?.startTime === h ? `2px solid ${C.secondary}` : "2px solid transparent", fontSize: 12, fontWeight: 600, cursor: "pointer", background: modal?.startTime === h ? C.secondary + "15" : "#f0f0f0", color: modal?.startTime === h ? C.secondary : C.text, minWidth: 50, textAlign: "center" }}>{h}</button>)}
+                        </div>
+                    </Field>
+
+                    {/* End time picker — only show slots after start time */}
+                    {modal?.startTime && <Field label="结束时间">
+                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                            {HOURS.filter(h => HOURS.indexOf(h) > HOURS.indexOf(modal.startTime)).map(h => <button key={h} onClick={() => setModal(m => ({ ...m, endTime: h }))} style={{ padding: "5px 10px", borderRadius: 6, border: modal?.endTime === h ? `2px solid ${C.secondary}` : "2px solid transparent", fontSize: 12, fontWeight: 600, cursor: "pointer", background: modal?.endTime === h ? C.secondary + "15" : "#f0f0f0", color: modal?.endTime === h ? C.secondary : C.text, minWidth: 50, textAlign: "center" }}>{h}</button>)}
+                            {/* Also add 21:00 as final end time option */}
+                            <button onClick={() => setModal(m => ({ ...m, endTime: "21:00" }))} style={{ padding: "5px 10px", borderRadius: 6, border: modal?.endTime === "21:00" ? `2px solid ${C.secondary}` : "2px solid transparent", fontSize: 12, fontWeight: 600, cursor: "pointer", background: modal?.endTime === "21:00" ? C.secondary + "15" : "#f0f0f0", color: modal?.endTime === "21:00" ? C.secondary : C.text, minWidth: 50, textAlign: "center" }}>21:00</button>
+                        </div>
+                    </Field>}
+
+                    {/* Preview occupied slots */}
+                    {previewSlots.length > 0 && <div style={{ background: C.orange + "10", borderRadius: 8, padding: "8px 12px", marginBottom: 14, fontSize: 12 }}>
+                        <span style={{ fontWeight: 700, color: C.orange }}>占用时段预览：</span>
+                        {previewSlots.map(h => <span key={h} style={{ display: "inline-block", background: C.orange + "20", color: C.orange, padding: "2px 6px", borderRadius: 4, margin: "2px", fontWeight: 600 }}>{h}-{slotEnd(h)}</span>)}
+                    </div>}
+
+                    <div style={{ display: "flex", gap: 12 }}>
+                        <div style={{ flex: 1 }}><Field label="名额"><input type="number" style={st.input} value={modal?.spots || ""} onChange={e => setModal(m => ({ ...m, spots: Number(e.target.value) }))} /></Field></div>
+                        <div style={{ flex: 1 }}><Field label="费用"><input type="number" style={st.input} value={modal?.cost || ""} onChange={e => setModal(m => ({ ...m, cost: Number(e.target.value) }))} /></Field></div>
+                    </div>
                     <Field label="最低开展人数"><input type="number" style={st.input} value={modal?.minParticipants || ""} onChange={e => setModal(m => ({ ...m, minParticipants: Number(e.target.value) }))} placeholder="0=不限" /></Field>
-                    <Field label="占用球台"><select style={st.input} value={modal?.tableId || ""} onChange={e => setModal(m => ({ ...m, tableId: Number(e.target.value) || null }))}><option value="">无</option>{tables.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></Field>
-                    {modal?.tableId && <Field label="占用时段"><input style={st.input} value={modal?.tableSlot || ""} onChange={e => setModal(m => ({ ...m, tableSlot: e.target.value }))} /></Field>}
+
+                    {/* Occupied table count — dropdown 0-5 */}
+                    <Field label="占用球台数量">
+                        <select style={st.input} value={modal?.occupiedTableCount || 0} onChange={e => setModal(m => ({ ...m, occupiedTableCount: Number(e.target.value) }))}>
+                            {[0, 1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n === 0 ? "不占用" : `${n} 张`}</option>)}
+                        </select>
+                    </Field>
                 </div>
                 {modal?.type === "match" && <div style={{ flex: 1 }}>
                     <Field label="🏆 奖励设置">{(modal?._rewards || []).map((r, i) => <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}><span style={{ fontSize: 13, fontWeight: 600, width: 40 }}>第{r.rank}名</span><input type="number" style={{ ...st.input, width: 100 }} value={r.amount} onChange={e => { const rw = [...(modal._rewards || [])]; rw[i] = { ...rw[i], amount: Number(e.target.value) }; setModal(m => ({ ...m, _rewards: rw })); }} /><span style={{ fontSize: 12, color: C.textLight }}>元</span><PBtn small danger onClick={() => { const rw = [...(modal._rewards || [])]; rw.splice(i, 1); setModal(m => ({ ...m, _rewards: rw })); }}>✕</PBtn></div>)}<PBtn small secondary onClick={() => { const rw = [...(modal?._rewards || [])]; rw.push({ rank: rw.length + 1, amount: 50 }); setModal(m => ({ ...m, _rewards: rw })); }}>+ 添加名次</PBtn></Field>
@@ -359,84 +502,202 @@ const ActivityMgmt = () => {
     </div>;
 };
 
-// ======= TABLE MANAGEMENT (0.5h slots) =======
+// ======= TABLE MANAGEMENT (reworked with 30-day calendar, color-coded grid, batch ops) =======
 const TableMgmt = () => {
-    const { tables, setTables, activities, bookings, HOURS: H, slotEnd: se } = useStore();
+    const { tables, activities, bookings, HOURS, slotEnd, getNext30Days, adminSaveTable, adminDeleteTable, adminToggleTableSlot, adminToggleWeekendDate, openWeekendDates } = useStore();
     const [modal, setModal] = useState(null);
-    const [calDate, setCalDate] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 1); return `${d.getMonth() + 1}/${d.getDate()}`; });
-    const empty = { name: "", pricePerHour: 15, status: "正常", closedDates: "", unavailableSlots: [] };
-    const openEdit = (t) => setModal({ ...t, closedDates: Array.isArray(t.closedDates) ? t.closedDates.join(",") : t.closedDates || "" });
-    const save = () => { const item = { ...modal, closedDates: modal.closedDates ? modal.closedDates.split(",").map(x => x.trim()).filter(Boolean) : [] }; if (item.id) { setTables(d => d.map(x => x.id === item.id ? item : x)); } else { setTables(d => [...d, { ...item, id: Date.now(), unavailableSlots: [] }]); } setModal(null); };
-    const del = (id) => setTables(d => d.filter(x => x.id !== id));
+    const [calDateIdx, setCalDateIdx] = useState(0);
+    const [batchMode, setBatchMode] = useState(false);
+    const [batchDateFrom, setBatchDateFrom] = useState("");
+    const [batchDateTo, setBatchDateTo] = useState("");
+    const [batchSlotFrom, setBatchSlotFrom] = useState("");
+    const [batchSlotTo, setBatchSlotTo] = useState("");
 
-    const SC = { free: C.success, private: C.primary, group: C.orange, pending: C.warning, confirmed: C.danger, unavailable: "#999", cancelled: "#ccc" };
-    const SL = { free: "空闲", private: "私教", group: "团课", pending: "待确", confirmed: "已确", unavailable: "不可", cancelled: "已取消" };
+    const calDays = useMemo(() => getNext30Days(), []);
+    const calDate = calDays[calDateIdx]?.dateKey || "";
 
-    const getStatus = (tid, h) => {
-        const slot = `${h}-${se(h)}`;
+    const empty = { name: "", pricePerHour: 15, status: "正常", closedDates: [], unavailableSlots: [], openWeekendDates: [] };
+    const openEdit = (t) => setModal({ ...t });
+    const save = async () => { await adminSaveTable(modal); setModal(null); };
+    const del = async (id) => { await adminDeleteTable(id); };
+
+    const SC = { free: C.success, private: C.primary, group: C.orange, pending: C.warning, confirmed: "#2563EB", unavailable: C.danger, cancelled: "#ccc" };
+    const SL = { free: "可用", private: "私教", group: "活动", pending: "待确", confirmed: "已约", unavailable: "关闭", cancelled: "已取消" };
+
+    const getStatus = (tid, dateKey, h) => {
+        const slot = `${h}-${slotEnd(h)}`;
         const t = tables.find(x => x.id === tid);
-        if (t?.unavailableSlots?.some(s => s.dateKey === calDate && s.hour === slot)) return "unavailable";
-        if (activities.some(a => a.tableId === tid && a.tableSlot && a.tableSlot.includes(h))) return activities.find(a => a.tableId === tid)?.type === "group" ? "group" : "private";
-        const bk = bookings.find(b => b.type === "球台预约" && b.detail.includes(t?.name) && b.date === calDate && b.slots?.includes(h) && b.status !== "已取消" && b.status !== "已拒绝");
-        if (bk) return bk.status === "已确认" ? "confirmed" : "pending";
+        if (!t || t.status !== "正常") return "unavailable";
+        if (t.unavailableSlots?.some(s => s.dateKey === dateKey && s.hour === slot)) return "unavailable";
+        // Check activity occupation
+        const act = activities.find(a => (a.occupiedTimeSlots || []).includes(h) && a.date === dateKey && a.occupiedTableCount > 0 && a.status !== "已取消");
+        if (act) return "group";
+        // Check coach bookings
+        const coachBk = bookings.find(b => b.type === "教练预约" && b.date === dateKey && b.slots?.includes(h) && b.status !== "已取消" && b.status !== "已拒绝");
+        if (coachBk) return "private";
+        // Check table bookings
+        const tableBk = bookings.find(b => b.type === "球台预约" && b.date === dateKey && b.slots?.includes(h) && b.status !== "已取消" && b.status !== "已拒绝");
+        if (tableBk) return tableBk.status === "已确认" ? "confirmed" : "pending";
         return "free";
     };
-    const toggleUn = (tid, h) => {
-        const slot = `${h}-${se(h)}`;
-        setTables(ts => ts.map(t => { if (t.id !== tid) return t; const ua = [...(t.unavailableSlots || [])]; const i = ua.findIndex(s => s.dateKey === calDate && s.hour === slot); if (i === -1) ua.push({ dateKey: calDate, hour: slot }); else ua.splice(i, 1); return { ...t, unavailableSlots: ua }; }));
+
+    const toggleSlot = async (tid, dateKey, h) => {
+        const status = getStatus(tid, dateKey, h);
+        if (status === "free" || status === "unavailable") {
+            await adminToggleTableSlot(tid, dateKey, h);
+        }
+    };
+
+    // Batch operation
+    const doBatchOperation = async (action) => {
+        if (!batchDateFrom || !batchDateTo || !batchSlotFrom || !batchSlotTo) return;
+        const fromIdx = calDays.findIndex(d => d.dateKey === batchDateFrom);
+        const toIdx = calDays.findIndex(d => d.dateKey === batchDateTo);
+        const slotFromIdx = HOURS.indexOf(batchSlotFrom);
+        const slotToIdx = HOURS.indexOf(batchSlotTo);
+        if (fromIdx < 0 || toIdx < 0 || slotFromIdx < 0 || slotToIdx < 0) return;
+
+        for (let di = Math.min(fromIdx, toIdx); di <= Math.max(fromIdx, toIdx); di++) {
+            const dk = calDays[di].dateKey;
+            for (let si = Math.min(slotFromIdx, slotToIdx); si <= Math.max(slotFromIdx, slotToIdx); si++) {
+                const h = HOURS[si];
+                for (const t of tables.filter(t => t.status === "正常")) {
+                    const status = getStatus(t.id, dk, h);
+                    if (action === "close" && status === "free") {
+                        await adminToggleTableSlot(t.id, dk, h);
+                    } else if (action === "open" && status === "unavailable") {
+                        await adminToggleTableSlot(t.id, dk, h);
+                    }
+                }
+            }
+        }
+        setBatchMode(false);
     };
 
     return <div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><h2 style={{ margin: 0, color: C.text }}>🏟️ 球台管理</h2><PBtn onClick={() => setModal({ ...empty })}>+ 添加球台</PBtn></div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+            <h2 style={{ margin: 0, color: C.text }}>🏟️ 球台管理</h2>
+            <div style={{ display: "flex", gap: 8 }}>
+                <PBtn secondary onClick={() => setBatchMode(!batchMode)}>{batchMode ? "取消批量" : "📦 批量操作"}</PBtn>
+                <PBtn onClick={() => setModal({ ...empty })}>+ 添加球台</PBtn>
+            </div>
+        </div>
+
+        {/* Table list */}
         <div style={{ background: C.card, borderRadius: 12, overflow: "auto", boxShadow: "0 2px 12px rgba(59,45,139,0.06)", marginBottom: 20 }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr><th style={st.th}>球台</th><th style={st.th}>价格/时</th><th style={st.th}>状态</th><th style={st.th}>操作</th></tr></thead>
                 <tbody>{tables.map(t => <tr key={t.id}><td style={st.td}><span style={{ fontWeight: 600 }}>{t.name}</span></td><td style={st.td}><span style={{ color: C.secondary, fontWeight: 700 }}>¥{t.pricePerHour}/时</span></td><td style={st.td}><span style={st.badge(t.status === "正常" ? C.success : C.danger)}>{t.status}</span></td><td style={st.td}><div style={{ display: "flex", gap: 6 }}><PBtn small secondary onClick={() => openEdit(t)}>编辑</PBtn><PBtn small danger onClick={() => del(t.id)}>删除</PBtn></div></td></tr>)}</tbody>
             </table>
         </div>
-        <h3 style={{ color: C.text, margin: "0 0 12px" }}>📅 日历 — {calDate} (0.5h/格)</h3>
-        <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
-            <input style={{ ...st.input, width: 100 }} value={calDate} onChange={e => setCalDate(e.target.value)} />
-            {Object.entries(SC).filter(([k]) => k !== "cancelled").map(([k, c]) => <span key={k} style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: c }} />{SL[k]}</span>)}
+
+        {/* Batch operation panel */}
+        {batchMode && <div style={{ background: C.card, borderRadius: 12, padding: 16, marginBottom: 16, border: `2px solid ${C.warning}` }}>
+            <h4 style={{ margin: "0 0 12px", color: C.warning }}>📦 批量操作</h4>
+            <div style={{ display: "flex", gap: 16 }}>
+                <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 4 }}>开始日期</div>
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", maxHeight: 80, overflow: "auto" }}>
+                        {calDays.map(d => <button key={d.dateKey} onClick={() => setBatchDateFrom(d.dateKey)} style={{ padding: "3px 8px", borderRadius: 4, border: "none", fontSize: 11, cursor: "pointer", fontWeight: 600, background: batchDateFrom === d.dateKey ? C.gradient : "#f0f0f0", color: batchDateFrom === d.dateKey ? "#fff" : C.text }}>{d.dateKey}</button>)}
+                    </div>
+                </div>
+                <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 4 }}>结束日期</div>
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", maxHeight: 80, overflow: "auto" }}>
+                        {calDays.map(d => <button key={d.dateKey} onClick={() => setBatchDateTo(d.dateKey)} style={{ padding: "3px 8px", borderRadius: 4, border: "none", fontSize: 11, cursor: "pointer", fontWeight: 600, background: batchDateTo === d.dateKey ? C.gradient : "#f0f0f0", color: batchDateTo === d.dateKey ? "#fff" : C.text }}>{d.dateKey}</button>)}
+                    </div>
+                </div>
+            </div>
+            <div style={{ display: "flex", gap: 16, marginTop: 12 }}>
+                <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 4 }}>开始时段</div>
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        {HOURS.map(h => <button key={h} onClick={() => setBatchSlotFrom(h)} style={{ padding: "3px 8px", borderRadius: 4, border: "none", fontSize: 11, cursor: "pointer", fontWeight: 600, background: batchSlotFrom === h ? C.gradient : "#f0f0f0", color: batchSlotFrom === h ? "#fff" : C.text }}>{h}</button>)}
+                    </div>
+                </div>
+                <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 4 }}>结束时段</div>
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        {HOURS.map(h => <button key={h} onClick={() => setBatchSlotTo(h)} style={{ padding: "3px 8px", borderRadius: 4, border: "none", fontSize: 11, cursor: "pointer", fontWeight: 600, background: batchSlotTo === h ? C.gradient : "#f0f0f0", color: batchSlotTo === h ? "#fff" : C.text }}>{h}</button>)}
+                    </div>
+                </div>
+            </div>
+            {batchDateFrom && batchDateTo && batchSlotFrom && batchSlotTo && <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                <PBtn danger onClick={() => doBatchOperation("close")}>一键关闭</PBtn>
+                <PBtn onClick={() => doBatchOperation("open")}>一键开放</PBtn>
+                <span style={{ fontSize: 12, color: C.textLight, alignSelf: "center" }}>范围: {batchDateFrom} ~ {batchDateTo}, {batchSlotFrom} ~ {batchSlotTo}</span>
+            </div>}
+        </div>}
+
+        {/* 30-day date selector */}
+        <h3 style={{ color: C.text, margin: "0 0 12px" }}>📅 球台日历 — {calDate}</h3>
+        <div style={{ display: "flex", gap: 4, marginBottom: 12, flexWrap: "wrap" }}>
+            {calDays.map((d, i) => <button key={d.dateKey} onClick={() => setCalDateIdx(i)} style={{ padding: "4px 8px", borderRadius: 6, border: "none", fontSize: 11, fontWeight: 600, cursor: "pointer", background: calDateIdx === i ? C.gradient : d.isWeekend ? "#FFF0E5" : "#f0f0f0", color: calDateIdx === i ? "#fff" : C.text, whiteSpace: "nowrap" }}>{d.dateKey}<br /><span style={{ fontSize: 9, fontWeight: 400 }}>{d.weekday}</span></button>)}
         </div>
+
+        {/* Weekend toggle */}
+        {calDays[calDateIdx]?.isWeekend && <div style={{ marginBottom: 12, padding: "8px 12px", background: C.warning + "10", borderRadius: 8, display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 13, color: C.warning, fontWeight: 600 }}>🌟 周末日期</span>
+            <PBtn small onClick={() => adminToggleWeekendDate(calDate)}>
+                {openWeekendDates.includes(calDate) ? "关闭周末营业" : "开放周末营业"}
+            </PBtn>
+        </div>}
+
+        {/* Legend */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+            {Object.entries(SC).filter(([k]) => k !== "cancelled").map(([k, c]) => <span key={k} style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: c + "30", border: `1.5px solid ${c}` }} />{SL[k]}</span>)}
+        </div>
+
+        {/* Grid — each table × each half-hour slot */}
         <div style={{ background: C.card, borderRadius: 12, padding: 12, overflow: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead><tr><th style={{ ...st.th, width: 70 }}>球台</th>{H.map(h => <th key={h} style={{ ...st.th, textAlign: "center", fontSize: 9, padding: 4 }}>{h}</th>)}</tr></thead>
+                <thead><tr><th style={{ ...st.th, width: 70 }}>球台</th>{HOURS.map(h => <th key={h} style={{ ...st.th, textAlign: "center", fontSize: 9, padding: 4 }}>{h}</th>)}</tr></thead>
                 <tbody>{tables.map(t => <tr key={t.id}><td style={{ ...st.td, fontWeight: 600, fontSize: 11 }}>{t.name}</td>
-                    {H.map(h => {
-                        const s = getStatus(t.id, h); return <td key={h} style={{ ...st.td, padding: 2, textAlign: "center" }}>
-                            <div onClick={() => s === "free" || s === "unavailable" ? toggleUn(t.id, h) : null} style={{ width: 36, height: 22, borderRadius: 4, background: SC[s] + "25", border: `1.5px solid ${SC[s]}`, cursor: s === "free" || s === "unavailable" ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: SC[s], margin: "0 auto" }}>{SL[s]?.slice(0, 2)}</div>
+                    {HOURS.map(h => {
+                        const s = getStatus(t.id, calDate, h);
+                        return <td key={h} style={{ ...st.td, padding: 2, textAlign: "center" }}>
+                            <div onClick={() => (s === "free" || s === "unavailable") ? toggleSlot(t.id, calDate, h) : null} style={{ width: 36, height: 22, borderRadius: 4, background: SC[s] + "25", border: `1.5px solid ${SC[s]}`, cursor: (s === "free" || s === "unavailable") ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: SC[s], margin: "0 auto" }}>{SL[s]?.slice(0, 2)}</div>
                         </td>;
                     })}</tr>)}</tbody>
             </table>
         </div>
+
+        {/* Edit table modal */}
         <Modal show={!!modal} onClose={() => setModal(null)} title={modal?.id ? "编辑球台" : "添加球台"}>
             <Field label="名称"><input style={st.input} value={modal?.name || ""} onChange={e => setModal(m => ({ ...m, name: e.target.value }))} /></Field>
             <Field label="每小时价格"><input type="number" style={st.input} value={modal?.pricePerHour || ""} onChange={e => setModal(m => ({ ...m, pricePerHour: Number(e.target.value) }))} /></Field>
             <Field label="状态"><select style={st.input} value={modal?.status || "正常"} onChange={e => setModal(m => ({ ...m, status: e.target.value }))}><option value="正常">正常</option><option value="维修中">维修中</option><option value="关闭">关闭</option></select></Field>
-            <Field label="关闭日期（逗号分隔）"><input style={st.input} value={modal?.closedDates || ""} onChange={e => setModal(m => ({ ...m, closedDates: e.target.value }))} /></Field>
             <div style={{ display: "flex", gap: 10, marginTop: 8 }}><PBtn secondary onClick={() => setModal(null)}>取消</PBtn><PBtn onClick={save}>保存</PBtn></div>
         </Modal>
     </div>;
 };
 
-// ======= BOOKING MANAGEMENT (with filtering + proxy booking) =======
-
-// Helper: parse a booking's date string (e.g. "3/12 周四" or "3/12") into a comparable YYYY-MM-DD string
+// ======= BOOKING MANAGEMENT (date filters reworked with list selection) =======
 const parseDateForCompare = (dateStr) => {
     if (!dateStr) return null;
     const m = dateStr.match(/^(\d{1,2})\/(\d{1,2})/);
     if (!m) return null;
     const mon = parseInt(m[1], 10);
     const day = parseInt(m[2], 10);
-    // Infer the year: use current year, but if the month is far in the past (>6 months ago), assume next year
     const now = new Date();
     let year = now.getFullYear();
     if (mon < now.getMonth() + 1 - 6) year += 1;
     return `${year}-${String(mon).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 };
 
+// Convert M/D dateKey to YYYY-MM-DD for comparison
+const dateKeyToISO = (dk) => {
+    if (!dk) return "";
+    const parts = dk.split("/");
+    if (parts.length !== 2) return "";
+    const now = new Date();
+    let year = now.getFullYear();
+    const mon = parseInt(parts[0], 10);
+    if (mon < now.getMonth() + 1 - 6) year += 1;
+    return `${year}-${String(mon).padStart(2, "0")}-${String(parseInt(parts[1], 10)).padStart(2, "0")}`;
+};
+
 const BookingMgmt = () => {
-    const { bookings, activities, coaches, allUsers, approveBooking, rejectBooking, adminBookForUser, adminEnrollForUser, adminGetUserCards, DEFAULT_COACH_HOURS, HOURS, getNext7Days, isCoachSlotBooked, slotsRange, slotsDuration } = useStore();
+    const { bookings, activities, coaches, allUsers, approveBooking, rejectBooking, adminBookForUser, adminEnrollForUser, adminGetUserCards, DEFAULT_COACH_HOURS, HOURS, getNext7Days, getNext30Days, isCoachSlotBooked, slotsRange, slotsDuration } = useStore();
     const userLabel = (u) => u ? `${u.nickname}（${u.phone || '无手机'}）` : "";
     const bookingUserLabel = (b) => { const u = allUsers.find(x => x.id === b.userId); return u ? userLabel(u) : b.user; };
     const [typeTab, setTypeTab] = useState("all");
@@ -448,26 +709,6 @@ const BookingMgmt = () => {
     const [proxyCards, setProxyCards] = useState([]);
     const [proxyMsg, setProxyMsg] = useState(null);
     const [proxySaving, setProxySaving] = useState(false);
-
-    // Quick date range helpers
-    const toISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    const setQuickRange = (preset) => {
-        const now = new Date();
-        if (preset === "today") {
-            const t = toISO(now);
-            setDateFrom(t); setDateTo(t);
-        } else if (preset === "week") {
-            const dow = now.getDay() || 7; // Mon=1
-            const mon = new Date(now); mon.setDate(now.getDate() - dow + 1);
-            const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
-            setDateFrom(toISO(mon)); setDateTo(toISO(sun));
-        } else if (preset === "month") {
-            const first = new Date(now.getFullYear(), now.getMonth(), 1);
-            const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-            setDateFrom(toISO(first)); setDateTo(toISO(last));
-        }
-    };
-    const clearDateRange = () => { setDateFrom(""); setDateTo(""); };
 
     const typeTabs = [
         { id: "all", label: "全部", count: bookings.length },
@@ -482,17 +723,17 @@ const BookingMgmt = () => {
     const filtered = useMemo(() => bookings.filter(b => {
         if (typeTab !== "all" && b.type !== typeTab) return false;
         if (statusTab !== "all" && b.status !== statusTab) return false;
-        // Date range filter
         if (dateFrom || dateTo) {
             const bd = parseDateForCompare(b.date);
             if (!bd) return false;
-            if (dateFrom && bd < dateFrom) return false;
-            if (dateTo && bd > dateTo) return false;
+            const fromISO = dateKeyToISO(dateFrom);
+            const toISO = dateKeyToISO(dateTo);
+            if (fromISO && bd < fromISO) return false;
+            if (toISO && bd > toISO) return false;
         }
         return true;
     }), [bookings, typeTab, statusTab, dateFrom, dateTo]);
 
-    // Stats for filtered results
     const stats = useMemo(() => ({
         total: filtered.length,
         confirmed: filtered.filter(b => b.status === "已确认").length,
@@ -547,29 +788,16 @@ const BookingMgmt = () => {
         if (result.ok) setProxyEnroll(null);
     };
 
-    const qBtnStyle = (active) => ({ padding: "5px 14px", borderRadius: 16, border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer", background: active ? C.gradient : "#E8E5F0", color: active ? "#fff" : C.text, transition: "all .2s" });
-
     return <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <h2 style={{ margin: 0, color: C.text }}>📋 预约管理</h2>
             <div style={{ display: "flex", gap: 8 }}><PBtn onClick={startProxyBook}>👤 帮用户约课</PBtn><PBtn secondary onClick={startProxyEnroll}>👤 帮用户报名活动</PBtn></div>
         </div>
 
-        {/* Date range filter */}
+        {/* Date range filter — now uses DateRangePicker */}
         <div style={{ background: C.card, borderRadius: 12, padding: "14px 18px", marginBottom: 14, boxShadow: "0 2px 12px rgba(59,45,139,0.06)" }}>
-            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>📅 日期范围</span>
-                <input type="date" style={{ ...st.input, width: 150 }} value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
-                <span style={{ color: C.textLight, fontWeight: 600 }}>至</span>
-                <input type="date" style={{ ...st.input, width: 150 }} value={dateTo} onChange={e => setDateTo(e.target.value)} />
-                <div style={{ display: "flex", gap: 6 }}>
-                    <button style={qBtnStyle(false)} onClick={() => setQuickRange("today")}>今天</button>
-                    <button style={qBtnStyle(false)} onClick={() => setQuickRange("week")}>本周</button>
-                    <button style={qBtnStyle(false)} onClick={() => setQuickRange("month")}>本月</button>
-                </div>
-                {(dateFrom || dateTo) && <span onClick={clearDateRange} style={{ cursor: "pointer", color: C.danger, fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 2 }}>✕ 清除日期</span>}
-            </div>
-            {(dateFrom || dateTo) && <div style={{ marginTop: 8, fontSize: 12, color: C.textLight }}>
+            <DateRangePicker from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} label="📅 日期范围筛选" />
+            {(dateFrom || dateTo) && <div style={{ marginTop: 4, fontSize: 12, color: C.textLight }}>
                 当前范围: {dateFrom || "不限"} 至 {dateTo || "不限"} · 共 {filtered.length} 条记录
             </div>}
         </div>
@@ -671,7 +899,7 @@ const BookingMgmt = () => {
     </div>;
 };
 
-// ======= MEMBER MANAGEMENT (with add user + detail tabs) =======
+// ======= MEMBER MANAGEMENT =======
 const MemberMgmt = () => {
     const { allUsers, courses, adminUpdateUser, adminCreateCard, adminUpdateCardRemaining, adminGetUserCards, adminGetUserTransactions, adminCreateUser, adminDeleteUser, adminUpdateUserPhone, refetchUsers } = useStore();
     const [addModal, setAddModal] = useState(null);
@@ -682,23 +910,16 @@ const MemberMgmt = () => {
     const [txLoading, setTxLoading] = useState(false);
     const [search, setSearch] = useState("");
     const [deleteConfirm, setDeleteConfirm] = useState(null);
-    const [editing, setEditing] = useState(null); // { nickname, phone }
-
+    const [editing, setEditing] = useState(null);
     const [newCard, setNewCard] = useState(null);
 
     const fmtDate = (d) => { if (!d) return "-"; const dt = new Date(d); return `${dt.getMonth() + 1}/${dt.getDate()} ${dt.getHours()}:${String(dt.getMinutes()).padStart(2, "0")}`; };
     const fmtDateFull = (d) => { if (!d) return "-"; const dt = new Date(d); return `${dt.getFullYear()}/${dt.getMonth() + 1}/${dt.getDate()}`; };
 
     const openUser = async (u) => {
-        setSelectedUser(u);
-        setDetailTab("basic");
-
-        setNewCard(null);
-        setTxLoading(true);
+        setSelectedUser(u); setDetailTab("basic"); setNewCard(null); setTxLoading(true);
         const [cards, txs] = await Promise.all([adminGetUserCards(u.id), adminGetUserTransactions(u.id)]);
-        setUserCards(cards);
-        setUserTxs(txs);
-        setTxLoading(false);
+        setUserCards(cards); setUserTxs(txs); setTxLoading(false);
     };
 
     const doCreateCard = async () => {
@@ -736,25 +957,13 @@ const MemberMgmt = () => {
     const saveEdit = async () => {
         if (!editing) return;
         let updated = false;
-        if (editing.nickname !== selectedUser.nickname) {
-            await adminUpdateUser(selectedUser.id, { nickname: editing.nickname });
-            updated = true;
-        }
-        if (editing.phone !== (selectedUser.phone || "")) {
-            const r = await adminUpdateUserPhone(selectedUser.id, editing.phone);
-            if (!r.ok) { alert(r.msg); return; }
-            updated = true;
-        }
-        if (updated) {
-            const fresh = allUsers.find(u => u.id === selectedUser.id);
-            if (fresh) setSelectedUser({ ...fresh, nickname: editing.nickname, phone: editing.phone });
-        }
+        if (editing.nickname !== selectedUser.nickname) { await adminUpdateUser(selectedUser.id, { nickname: editing.nickname }); updated = true; }
+        if (editing.phone !== (selectedUser.phone || "")) { const r = await adminUpdateUserPhone(selectedUser.id, editing.phone); if (!r.ok) { alert(r.msg); return; } updated = true; }
+        if (updated) { const fresh = allUsers.find(u => u.id === selectedUser.id); if (fresh) setSelectedUser({ ...fresh, nickname: editing.nickname, phone: editing.phone }); }
         setEditing(null);
     };
 
     const filteredUsers = useMemo(() => allUsers.filter(u => !search || u.nickname.toLowerCase().includes(search.toLowerCase()) || (u.phone && u.phone.includes(search))), [allUsers, search]);
-
-
 
     const detailTabs = [
         { id: "basic", label: "基本信息" },
@@ -762,7 +971,6 @@ const MemberMgmt = () => {
         { id: "cards", label: `课程卡 (${userCards.length})` },
     ];
 
-    // Detail view
     if (selectedUser) return <div>
         <button onClick={() => setSelectedUser(null)} style={{ background: "none", border: "none", color: C.primary, fontWeight: 600, fontSize: 14, cursor: "pointer", marginBottom: 16 }}>← 返回会员列表</button>
         <div style={{ background: C.card, borderRadius: 14, padding: 20, boxShadow: "0 2px 12px rgba(59,45,139,0.06)", marginBottom: 16 }}>
@@ -771,41 +979,22 @@ const MemberMgmt = () => {
                 <div>
                     <h3 style={{ margin: 0, color: C.text }}>{selectedUser.nickname}</h3>
                     <div style={{ fontSize: 13, color: C.textLight, marginTop: 2 }}>ID: {selectedUser.id}</div>
-                    <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
-                        <span style={{ fontSize: 12, color: C.textLight }}>注册: {fmtDateFull(selectedUser.createdAt)}</span>
-                    </div>
+                    <div style={{ display: "flex", gap: 12, marginTop: 4 }}><span style={{ fontSize: 12, color: C.textLight }}>注册: {fmtDateFull(selectedUser.createdAt)}</span></div>
                 </div>
             </div>
             <TabBar tabs={detailTabs} value={detailTab} onChange={setDetailTab} />
         </div>
 
         {txLoading ? <Spinner /> : <>
-            {/* Basic Info Tab */}
             {detailTab === "basic" && <div style={{ background: C.card, borderRadius: 14, padding: 20, boxShadow: "0 2px 12px rgba(59,45,139,0.06)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                     <h4 style={{ margin: 0, color: C.text }}>会员信息</h4>
-                    {!editing ? <div style={{ display: "flex", gap: 8 }}>
-                        <PBtn small onClick={startEdit}>✏️ 编辑</PBtn>
-                        <PBtn small danger onClick={() => setDeleteConfirm(selectedUser)}>🗑️ 删除</PBtn>
-                    </div> : <div style={{ display: "flex", gap: 8 }}>
-                        <PBtn small secondary onClick={cancelEdit}>取消</PBtn>
-                        <PBtn small onClick={saveEdit}>保存</PBtn>
-                    </div>}
+                    {!editing ? <div style={{ display: "flex", gap: 8 }}><PBtn small onClick={startEdit}>✏️ 编辑</PBtn><PBtn small danger onClick={() => setDeleteConfirm(selectedUser)}>🗑️ 删除</PBtn></div> : <div style={{ display: "flex", gap: 8 }}><PBtn small secondary onClick={cancelEdit}>取消</PBtn><PBtn small onClick={saveEdit}>保存</PBtn></div>}
                 </div>
-                {!editing ? <div style={{ fontSize: 14, color: C.text, lineHeight: 2 }}>
-                    <div>ID: <b>{selectedUser.id}</b></div>
-                    <div>昵称: <b>{selectedUser.nickname}</b></div>
-                    <div>手机号: <b>{selectedUser.phone || '未绑定'}</b></div>
-                    <div>注册时间: <b>{fmtDateFull(selectedUser.createdAt)}</b></div>
-                </div> : <div style={{ fontSize: 14, color: C.text }}>
-                    <div style={{ marginBottom: 8 }}>ID: <b>{selectedUser.id}</b></div>
-                    <Field label="昵称"><input style={st.input} value={editing.nickname} onChange={e => setEditing(v => ({ ...v, nickname: e.target.value }))} /></Field>
-                    <Field label="手机号"><input style={st.input} value={editing.phone} onChange={e => setEditing(v => ({ ...v, phone: e.target.value.replace(/\D/g, "") }))} maxLength={11} placeholder="11位手机号" /></Field>
-                    <div>注册时间: <b>{fmtDateFull(selectedUser.createdAt)}</b></div>
-                </div>}
+                {!editing ? <div style={{ fontSize: 14, color: C.text, lineHeight: 2 }}><div>ID: <b>{selectedUser.id}</b></div><div>昵称: <b>{selectedUser.nickname}</b></div><div>手机号: <b>{selectedUser.phone || '未绑定'}</b></div><div>注册时间: <b>{fmtDateFull(selectedUser.createdAt)}</b></div></div>
+                : <div style={{ fontSize: 14, color: C.text }}><div style={{ marginBottom: 8 }}>ID: <b>{selectedUser.id}</b></div><Field label="昵称"><input style={st.input} value={editing.nickname} onChange={e => setEditing(v => ({ ...v, nickname: e.target.value }))} /></Field><Field label="手机号"><input style={st.input} value={editing.phone} onChange={e => setEditing(v => ({ ...v, phone: e.target.value.replace(/\D/g, "") }))} maxLength={11} placeholder="11位手机号" /></Field><div>注册时间: <b>{fmtDateFull(selectedUser.createdAt)}</b></div></div>}
             </div>}
 
-            {/* All transactions tab */}
             {detailTab === "transactions" && <div style={{ background: C.card, borderRadius: 14, padding: 16, boxShadow: "0 2px 12px rgba(59,45,139,0.06)" }}>
                 {userTxs.length === 0 ? <div style={{ color: C.textLight, textAlign: "center", padding: 24 }}>暂无交易记录</div> :
                     <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -819,7 +1008,6 @@ const MemberMgmt = () => {
                     </table>}
             </div>}
 
-            {/* Course cards tab */}
             {detailTab === "cards" && <div style={{ background: C.card, borderRadius: 14, padding: 16, boxShadow: "0 2px 12px rgba(59,45,139,0.06)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                     <h4 style={{ margin: 0, color: C.text }}>🎫 课程卡</h4>
@@ -850,7 +1038,6 @@ const MemberMgmt = () => {
         </>}
     </div>;
 
-    // Member list view
     return <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <h2 style={{ margin: 0, color: C.text }}>👥 会员管理</h2>
@@ -908,7 +1095,7 @@ export default function Admin() {
             <div style={{ padding: "12px 20px", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
                 <button onClick={refetchAll} style={{ width: "100%", padding: "8px", background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 6, color: "#fff", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>🔄 刷新数据</button>
             </div>
-            <div style={{ padding: "8px 20px 16px", fontSize: 12, opacity: 0.4 }}>v3.0 · Supabase</div>
+            <div style={{ padding: "8px 20px 16px", fontSize: 12, opacity: 0.4 }}>v3.1 · Supabase</div>
         </div>
         <div style={{ flex: 1, background: C.bg, overflow: "auto" }}><div style={{ padding: "24px 32px", maxWidth: 1100 }}>
             {page === "coach" && <CoachMgmt />}{page === "course" && <CourseMgmt />}{page === "activity" && <ActivityMgmt />}{page === "table" && <TableMgmt />}{page === "booking" && <BookingMgmt />}{page === "member" && <MemberMgmt />}{page === "community" && <CommunityMgmt />}
