@@ -146,20 +146,23 @@ export function StoreProvider({ children }) {
 
   // ---- Table occupancy calculator ----
   const getSlotOccupancy = useCallback((dateKey, hour) => {
-    let occupied = 0;
     // Admin-closed tables
+    let adminClosed = 0;
     const slot = `${hour}-${slotEnd(hour)}`;
     tables.forEach(t => {
       if (t.status !== '正常') return;
-      if ((t.unavailableSlots || []).some(s => s.dateKey === dateKey && s.hour === slot)) occupied++;
+      if ((t.unavailableSlots || []).some(s => s.dateKey === dateKey && s.hour === slot)) adminClosed++;
     });
-    // Coach bookings
+    // Activity occupation (absorbs admin-closed: admin may close tables FOR the activity)
+    let activityOccupied = 0;
+    activities.forEach(a => {
+      if ((a.occupiedTimeSlots || []).includes(hour) && a.date === dateKey && a.occupiedTableCount > 0 && a.status !== "已取消") activityOccupied += a.occupiedTableCount;
+    });
+    // Use max to avoid double-counting admin-closed + activity overlap
+    let occupied = Math.max(adminClosed, activityOccupied);
+    // Coach bookings (always additive — coach uses a separate table)
     bookings.forEach(b => {
       if (b.type === "教练预约" && b.date === dateKey && b.slots?.includes(hour) && b.status !== "已取消" && b.status !== "已拒绝") occupied += 1;
-    });
-    // Activity occupation
-    activities.forEach(a => {
-      if ((a.occupiedTimeSlots || []).includes(hour) && a.date === dateKey && a.occupiedTableCount > 0 && a.status !== "已取消") occupied += a.occupiedTableCount;
     });
     // Table bookings
     bookings.forEach(b => {
@@ -196,7 +199,8 @@ export function StoreProvider({ children }) {
       if (b.type === '球台预约') tableBooked++;
     });
 
-    const occupied = adminClosed + activityOccupied + coachBooked + tableBooked;
+    // Use max for admin-closed vs activity to avoid double-counting overlap
+    const occupied = Math.max(adminClosed, activityOccupied) + coachBooked + tableBooked;
     const available = Math.max(0, totalTables - occupied);
     return { occupied, available, full: occupied >= totalTables, adminClosed, activityOccupied, coachBooked, tableBooked };
   }, [tables, bookings, activities, totalTables]);

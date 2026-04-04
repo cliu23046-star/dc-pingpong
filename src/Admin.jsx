@@ -41,76 +41,177 @@ const NAV = [
     { id: "community", icon: "💬", label: "社区管理" },
 ];
 
-// ======= UNIFIED DATE PICKER (30 days) =======
+// ======= CALENDAR POPUP DATE PICKER =======
 const DatePicker = ({ value, onChange, label }) => {
-    const { getNext30Days } = useStore();
-    const days = useMemo(() => getNext30Days(), []);
+    const [open, setOpen] = useState(false);
+    const now = new Date();
+    const [viewYear, setViewYear] = useState(now.getFullYear());
+    const [viewMonth, setViewMonth] = useState(now.getMonth());
+    const DAY_HEADERS = ["日", "一", "二", "三", "四", "五", "六"];
+
+    const prevMonth = () => { if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11); } else setViewMonth(m => m - 1); };
+    const nextMonth = () => { if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); } else setViewMonth(m => m + 1); };
+
+    // Build calendar grid for current view month
+    const calDays = useMemo(() => {
+        const first = new Date(viewYear, viewMonth, 1);
+        const startDay = first.getDay(); // 0=Sun
+        const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+        const cells = [];
+        for (let i = 0; i < startDay; i++) cells.push(null);
+        for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+        return cells;
+    }, [viewYear, viewMonth]);
+
+    const selectDay = (d) => {
+        const dateKey = `${viewMonth + 1}/${d}`;
+        const dow = new Date(viewYear, viewMonth, d).getDay();
+        const DAY_MAP = { 0: "周日", 1: "周一", 2: "周二", 3: "周三", 4: "周四", 5: "周五", 6: "周六" };
+        onChange(dateKey, { dateKey, label: `${dateKey} ${DAY_MAP[dow]}`, isWeekend: dow === 0 || dow === 6 });
+        setOpen(false);
+    };
+
+    const isSelected = (d) => value === `${viewMonth + 1}/${d}`;
+    const isToday = (d) => d === now.getDate() && viewMonth === now.getMonth() && viewYear === now.getFullYear();
+
+    const displayLabel = value || "选择日期";
+
     return <Field label={label || "选择日期"}>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", maxHeight: 120, overflow: "auto", padding: 4 }}>
-            {days.map(d => <button key={d.dateKey} onClick={() => onChange(d.dateKey, d)} style={{ padding: "6px 12px", borderRadius: 8, border: "none", fontWeight: 600, fontSize: 12, cursor: "pointer", background: value === d.dateKey ? C.gradient : d.isWeekend ? "#FFF0E5" : "#f0f0f0", color: value === d.dateKey ? "#fff" : C.text, whiteSpace: "nowrap" }}>{d.label}</button>)}
+        <div style={{ position: "relative", display: "inline-block" }}>
+            <button onClick={() => setOpen(!open)} style={{ ...st.input, cursor: "pointer", background: value ? C.primary + "08" : "#fff", fontWeight: 600, fontSize: 13, textAlign: "left", display: "flex", alignItems: "center", gap: 8 }}>
+                <span>📅</span> <span>{displayLabel}</span> <span style={{ marginLeft: "auto", fontSize: 10, color: C.textLight }}>▼</span>
+            </button>
+            {open && <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 100, background: "#fff", borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,0.18)", padding: 16, minWidth: 280, marginTop: 4 }}>
+                {/* Month navigation */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <button onClick={prevMonth} style={{ border: "none", background: "none", fontSize: 18, cursor: "pointer", padding: "4px 8px" }}>◀</button>
+                    <span style={{ fontWeight: 700, fontSize: 15, color: C.text }}>{viewYear}年 {viewMonth + 1}月</span>
+                    <button onClick={nextMonth} style={{ border: "none", background: "none", fontSize: 18, cursor: "pointer", padding: "4px 8px" }}>▶</button>
+                </div>
+                {/* Day headers */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, textAlign: "center", marginBottom: 4 }}>
+                    {DAY_HEADERS.map(h => <span key={h} style={{ fontSize: 11, fontWeight: 600, color: C.textLight, padding: 4 }}>{h}</span>)}
+                </div>
+                {/* Day cells */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, textAlign: "center" }}>
+                    {calDays.map((d, i) => d === null
+                        ? <span key={`e${i}`} />
+                        : <button key={d} onClick={() => selectDay(d)} style={{ border: "none", borderRadius: 8, padding: "6px 0", fontSize: 13, fontWeight: isSelected(d) ? 700 : 500, cursor: "pointer", background: isSelected(d) ? C.gradient : isToday(d) ? C.warning + "25" : "transparent", color: isSelected(d) ? "#fff" : C.text, transition: "all .15s" }}>{d}</button>
+                    )}
+                </div>
+                {/* Close button */}
+                <div style={{ textAlign: "right", marginTop: 8 }}>
+                    <button onClick={() => setOpen(false)} style={{ border: "none", background: "none", fontSize: 12, color: C.textLight, cursor: "pointer" }}>关闭</button>
+                </div>
+            </div>}
         </div>
     </Field>;
 };
 
-// ======= UNIFIED DATE RANGE PICKER (30 days) =======
+// ======= CALENDAR POPUP DATE RANGE PICKER =======
+const CalendarPopup = ({ value, onSelect, onClear, onClose }) => {
+    const now = new Date();
+    const [viewYear, setViewYear] = useState(now.getFullYear());
+    const [viewMonth, setViewMonth] = useState(now.getMonth());
+    const DAY_HEADERS = ["日", "一", "二", "三", "四", "五", "六"];
+
+    const prevMonth = () => { if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11); } else setViewMonth(m => m - 1); };
+    const nextMonth = () => { if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); } else setViewMonth(m => m + 1); };
+
+    const calDays = useMemo(() => {
+        const first = new Date(viewYear, viewMonth, 1);
+        const startDay = first.getDay();
+        const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+        const cells = [];
+        for (let i = 0; i < startDay; i++) cells.push(null);
+        for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+        return cells;
+    }, [viewYear, viewMonth]);
+
+    const isSelected = (d) => value === `${viewMonth + 1}/${d}`;
+    const isToday = (d) => d === now.getDate() && viewMonth === now.getMonth() && viewYear === now.getFullYear();
+
+    return <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 100, background: "#fff", borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,0.18)", padding: 16, minWidth: 280, marginTop: 4 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <button onClick={prevMonth} style={{ border: "none", background: "none", fontSize: 18, cursor: "pointer", padding: "4px 8px" }}>◀</button>
+            <span style={{ fontWeight: 700, fontSize: 15, color: C.text }}>{viewYear}年 {viewMonth + 1}月</span>
+            <button onClick={nextMonth} style={{ border: "none", background: "none", fontSize: 18, cursor: "pointer", padding: "4px 8px" }}>▶</button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, textAlign: "center", marginBottom: 4 }}>
+            {DAY_HEADERS.map(h => <span key={h} style={{ fontSize: 11, fontWeight: 600, color: C.textLight, padding: 4 }}>{h}</span>)}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, textAlign: "center" }}>
+            {calDays.map((d, i) => d === null
+                ? <span key={`e${i}`} />
+                : <button key={d} onClick={() => { onSelect(`${viewMonth + 1}/${d}`); onClose(); }} style={{ border: "none", borderRadius: 8, padding: "6px 0", fontSize: 13, fontWeight: isSelected(d) ? 700 : 500, cursor: "pointer", background: isSelected(d) ? C.gradient : isToday(d) ? C.warning + "25" : "transparent", color: isSelected(d) ? "#fff" : C.text }}>{d}</button>
+            )}
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
+            {value && <button onClick={() => { onClear(); onClose(); }} style={{ border: "none", background: C.danger + "15", color: C.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", borderRadius: 6, padding: "4px 10px" }}>清除</button>}
+            <button onClick={onClose} style={{ border: "none", background: "none", fontSize: 12, color: C.textLight, cursor: "pointer", marginLeft: "auto" }}>关闭</button>
+        </div>
+    </div>;
+};
+
 const DateRangePicker = ({ from, to, onFromChange, onToChange, label }) => {
-    const { getNext30Days } = useStore();
-    const days = useMemo(() => getNext30Days(), []);
-    const allDates = useMemo(() => {
-        // Also include past 30 days for filtering historical data
-        const result = [];
-        const now = new Date();
-        for (let i = 30; i >= 1; i--) {
-            const d = new Date(now); d.setDate(d.getDate() - i);
-            const dow = d.getDay();
-            const DAY_MAP = { 0: "周日", 1: "周一", 2: "周二", 3: "周三", 4: "周四", 5: "周五", 6: "周六" };
-            const dateStr = `${d.getMonth() + 1}/${d.getDate()}`;
-            result.push({ dateKey: dateStr, label: `${dateStr} ${DAY_MAP[dow]}`, isWeekend: dow === 0 || dow === 6, isPast: true });
-        }
-        // Today
-        const dow = now.getDay();
-        const DAY_MAP = { 0: "周日", 1: "周一", 2: "周二", 3: "周三", 4: "周四", 5: "周五", 6: "周六" };
-        result.push({ dateKey: `${now.getMonth() + 1}/${now.getDate()}`, label: `${now.getMonth() + 1}/${now.getDate()} ${DAY_MAP[dow]}`, isWeekend: dow === 0 || dow === 6, isToday: true });
-        days.forEach(d => result.push({ ...d, isFuture: true }));
-        return result;
-    }, [days]);
+    const [openFrom, setOpenFrom] = useState(false);
+    const [openTo, setOpenTo] = useState(false);
 
     return <Field label={label || "日期范围"}>
         <div style={{ display: "flex", gap: 12, alignItems: "start" }}>
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, position: "relative" }}>
                 <div style={{ fontSize: 12, color: C.textLight, marginBottom: 4 }}>开始日期</div>
-                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", maxHeight: 100, overflow: "auto", padding: 4, border: `1px solid ${C.primary}15`, borderRadius: 8 }}>
-                    {from && <button onClick={() => onFromChange("")} style={{ padding: "4px 8px", borderRadius: 6, border: "none", fontSize: 11, cursor: "pointer", background: C.danger + "15", color: C.danger, fontWeight: 600 }}>清除</button>}
-                    {allDates.map(d => <button key={"f-" + d.dateKey} onClick={() => onFromChange(d.dateKey)} style={{ padding: "4px 8px", borderRadius: 6, border: "none", fontSize: 11, cursor: "pointer", fontWeight: 600, background: from === d.dateKey ? C.gradient : d.isToday ? C.warning + "20" : "#f0f0f0", color: from === d.dateKey ? "#fff" : d.isPast ? C.textLight : C.text, whiteSpace: "nowrap" }}>{d.dateKey}{d.isToday ? " 今" : ""}</button>)}
-                </div>
+                <button onClick={() => { setOpenFrom(!openFrom); setOpenTo(false); }} style={{ ...st.input, cursor: "pointer", fontWeight: 600, fontSize: 13, textAlign: "left", display: "flex", alignItems: "center", gap: 8, background: from ? C.primary + "08" : "#fff" }}>
+                    <span>📅</span> <span>{from || "选择"}</span> <span style={{ marginLeft: "auto", fontSize: 10, color: C.textLight }}>▼</span>
+                </button>
+                {openFrom && <CalendarPopup value={from} onSelect={onFromChange} onClear={() => onFromChange("")} onClose={() => setOpenFrom(false)} />}
             </div>
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, position: "relative" }}>
                 <div style={{ fontSize: 12, color: C.textLight, marginBottom: 4 }}>结束日期</div>
-                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", maxHeight: 100, overflow: "auto", padding: 4, border: `1px solid ${C.primary}15`, borderRadius: 8 }}>
-                    {to && <button onClick={() => onToChange("")} style={{ padding: "4px 8px", borderRadius: 6, border: "none", fontSize: 11, cursor: "pointer", background: C.danger + "15", color: C.danger, fontWeight: 600 }}>清除</button>}
-                    {allDates.map(d => <button key={"t-" + d.dateKey} onClick={() => onToChange(d.dateKey)} style={{ padding: "4px 8px", borderRadius: 6, border: "none", fontSize: 11, cursor: "pointer", fontWeight: 600, background: to === d.dateKey ? C.gradient : d.isToday ? C.warning + "20" : "#f0f0f0", color: to === d.dateKey ? "#fff" : d.isPast ? C.textLight : C.text, whiteSpace: "nowrap" }}>{d.dateKey}{d.isToday ? " 今" : ""}</button>)}
-                </div>
+                <button onClick={() => { setOpenTo(!openTo); setOpenFrom(false); }} style={{ ...st.input, cursor: "pointer", fontWeight: 600, fontSize: 13, textAlign: "left", display: "flex", alignItems: "center", gap: 8, background: to ? C.primary + "08" : "#fff" }}>
+                    <span>📅</span> <span>{to || "选择"}</span> <span style={{ marginLeft: "auto", fontSize: 10, color: C.textLight }}>▼</span>
+                </button>
+                {openTo && <CalendarPopup value={to} onSelect={onToChange} onClear={() => onToChange("")} onClose={() => setOpenTo(false)} />}
             </div>
         </div>
     </Field>;
 };
 
-// ======= UNIFIED SLOT PICKER (0.5h units, 09:00-21:00) =======
+// ======= COLLAPSIBLE SLOT PICKER POPUP =======
 const SlotPicker = ({ value, onChange, multi, label }) => {
     const { HOURS } = useStore();
+    const [open, setOpen] = useState(false);
     const toggle = (h) => {
-        if (!multi) { onChange(h); return; }
+        if (!multi) { onChange(h); setOpen(false); return; }
         const prev = value || [];
         if (prev.includes(h)) onChange(prev.filter(x => x !== h));
         else onChange([...prev, h].sort((a, b) => HOURS.indexOf(a) - HOURS.indexOf(b)));
     };
     const selected = multi ? (value || []) : [];
+
+    // Summary text when collapsed
+    const summary = multi
+        ? (selected.length > 0 ? selected.join(", ") : "点击选择时段")
+        : (value || "点击选择时段");
+
     return <Field label={label || "选择时段"}>
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-            {HOURS.map(h => {
-                const sel = multi ? selected.includes(h) : value === h;
-                return <button key={h} onClick={() => toggle(h)} style={{ padding: "5px 10px", borderRadius: 6, border: sel ? `2px solid ${C.secondary}` : "2px solid transparent", fontSize: 12, fontWeight: 600, cursor: "pointer", background: sel ? C.secondary + "15" : "#f0f0f0", color: sel ? C.secondary : C.text, minWidth: 50, textAlign: "center" }}>{h}</button>;
-            })}
+        <div style={{ position: "relative" }}>
+            <button onClick={() => setOpen(!open)} style={{ ...st.input, cursor: "pointer", fontWeight: 600, fontSize: 13, textAlign: "left", display: "flex", alignItems: "center", gap: 8, background: (multi ? selected.length > 0 : !!value) ? C.secondary + "08" : "#fff" }}>
+                <span>🕐</span>
+                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: (multi ? selected.length > 0 : !!value) ? C.text : C.textLight }}>{summary}</span>
+                <span style={{ fontSize: 10, color: C.textLight }}>{open ? "▲" : "▼"}</span>
+            </button>
+            {open && <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100, background: "#fff", borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,0.18)", padding: 16, marginTop: 4 }}>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                    {HOURS.map(h => {
+                        const sel = multi ? selected.includes(h) : value === h;
+                        return <button key={h} onClick={() => toggle(h)} style={{ padding: "5px 10px", borderRadius: 6, border: sel ? `2px solid ${C.secondary}` : "2px solid transparent", fontSize: 12, fontWeight: 600, cursor: "pointer", background: sel ? C.secondary + "15" : "#f0f0f0", color: sel ? C.secondary : C.text, minWidth: 50, textAlign: "center" }}>{h}</button>;
+                    })}
+                </div>
+                <div style={{ textAlign: "right", marginTop: 10 }}>
+                    <button onClick={() => setOpen(false)} style={{ ...st.btn, background: C.gradient, color: "#fff", fontSize: 12, padding: "5px 16px" }}>确定</button>
+                </div>
+            </div>}
         </div>
     </Field>;
 };
@@ -529,9 +630,23 @@ const TableMgmt = () => {
         const t = tables.find(x => x.id === tid);
         if (!t || t.status !== "正常") return "unavailable";
         if (t.unavailableSlots?.some(s => s.dateKey === dateKey && s.hour === slot)) return "unavailable";
-        // Check activity occupation
-        const act = activities.find(a => (a.occupiedTimeSlots || []).includes(h) && a.date === dateKey && a.occupiedTableCount > 0 && a.status !== "已取消");
-        if (act) return "group";
+        // Check activity occupation — only mark up to occupiedTableCount tables (not all)
+        let totalActivityOcc = 0;
+        activities.forEach(a => {
+            if ((a.occupiedTimeSlots || []).includes(h) && a.date === dateKey && a.occupiedTableCount > 0 && a.status !== "已取消") totalActivityOcc += a.occupiedTableCount;
+        });
+        if (totalActivityOcc > 0) {
+            const activeTables = tables.filter(x => x.status === "正常").sort((a, b) => a.id - b.id);
+            const myIndex = activeTables.findIndex(x => x.id === tid);
+            // Count how many active tables before this one are already admin-closed for this slot
+            let closedBefore = 0;
+            for (let i = 0; i < myIndex; i++) {
+                if ((activeTables[i].unavailableSlots || []).some(s => s.dateKey === dateKey && s.hour === slot)) closedBefore++;
+            }
+            // Only show "group" for the first N non-closed tables where N = totalActivityOcc
+            const isThisClosed = t.unavailableSlots?.some(s => s.dateKey === dateKey && s.hour === slot);
+            if (!isThisClosed && (myIndex - closedBefore) < totalActivityOcc) return "group";
+        }
         // Check coach bookings
         const coachBk = bookings.find(b => b.type === "教练预约" && b.date === dateKey && b.slots?.includes(h) && b.status !== "已取消" && b.status !== "已拒绝");
         if (coachBk) return "private";
