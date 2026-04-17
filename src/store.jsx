@@ -290,11 +290,12 @@ export function StoreProvider({ children }) {
     await supabase.from("transactions").insert({ user_id: uid || userId, description: desc, amount, type });
   };
 
-  // Simulated WeChat Pay — will be replaced with real API when merchant account is ready
+  // Web version does not support real WeChat Pay (JSAPI requires mini program context).
+  // Users must complete payment via the WeChat mini program.
   const simulateWechatPay = (amount, desc) => {
     return new Promise((resolve) => {
-      const ok = window.confirm(`模拟微信支付\n\n${desc}\n金额：¥${amount}\n\n点击"确定"模拟支付成功`);
-      resolve(ok);
+      window.alert(`网页版暂不支持在线支付\n\n请使用"DC乒乓"微信小程序完成支付\n\n${desc}\n金额：¥${amount}`);
+      resolve(false);
     });
   };
 
