@@ -10,14 +10,14 @@
 // All secrets are read from environment variables. None are hard-coded.
 
 export interface WechatPayEnv {
-    appId: string;              // WECHAT_APP_ID        e.g. wx6dd6788cc6673855
-    appSecret: string;          // WECHAT_APP_SECRET    (for jscode2session)
-    mchId: string;              // WECHAT_MCH_ID        e.g. 1111338428
-    apiV3Key: string;           // WECHAT_API_V3_KEY    (32-char APIv3 key)
-    merchantSerialNo: string;   // WECHAT_MERCHANT_SERIAL_NO
-    merchantPrivateKey: string; // WECHAT_MERCHANT_PRIVATE_KEY (PEM-format apiclient_key.pem contents)
-    platformPublicKey: string;  // WECHAT_PLATFORM_PUBLIC_KEY  (PEM-format platform cert public key, for notify verify)
-    notifyUrl: string;          // NOTIFY_URL — the payment-notify Edge Function URL
+    appId: string;              // from env WECHAT_APP_ID
+    appSecret: string;          // from env WECHAT_APP_SECRET (for jscode2session)
+    mchId: string;              // from env WECHAT_MCH_ID
+    apiV3Key: string;           // from env WECHAT_API_V3_KEY (32-char APIv3 key)
+    merchantSerialNo: string;   // from env WECHAT_MERCHANT_SERIAL_NO
+    merchantPrivateKey: string; // from env WECHAT_MERCHANT_PRIVATE_KEY (PEM contents of apiclient_key.pem)
+    platformPublicKey: string;  // from env WECHAT_PLATFORM_PUBLIC_KEY (PEM of platform cert, for notify verify)
+    notifyUrl: string;          // from env NOTIFY_URL (the payment-notify Edge Function URL)
 }
 
 export function loadEnv(): WechatPayEnv {

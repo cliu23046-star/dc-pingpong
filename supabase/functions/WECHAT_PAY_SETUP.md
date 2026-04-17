@@ -31,8 +31,8 @@ From [商户平台](https://pay.weixin.qq.com/):
 
 | Item | Where to get it | Env var |
 |------|----------------|---------|
-| 商户号 (Mch ID) | 商户平台首页 → 账户中心 | `WECHAT_MCH_ID` = `1111338428` |
-| 小程序 AppID | 微信公众平台 → 开发管理 | `WECHAT_APP_ID` = `wx6dd6788cc6673855` |
+| 商户号 (Mch ID) | 商户平台首页 → 账户中心 | `WECHAT_MCH_ID` |
+| 小程序 AppID | 微信公众平台 → 开发管理 | `WECHAT_APP_ID` |
 | 小程序 AppSecret | 微信公众平台 → 开发管理 → 重置 | `WECHAT_APP_SECRET` |
 | APIv3 密钥 | 账户中心 → API安全 → 设置APIv3密钥 (32 chars) | `WECHAT_API_V3_KEY` |
 | 商户证书序列号 | 账户中心 → API安全 → 申请API证书 → 证书管理 | `WECHAT_MERCHANT_SERIAL_NO` |
@@ -46,10 +46,10 @@ Run this once locally (Node) after you have the merchant cert + APIv3 key:
 ```bash
 # Use the official tool
 npm i -g wechatpay-axios-plugin
-wxpay cert download --mchid 1111338428 \
-  --serial YOUR_MERCHANT_SERIAL \
+wxpay cert download --mchid "$WECHAT_MCH_ID" \
+  --serial "$WECHAT_MERCHANT_SERIAL_NO" \
   --privatekey ./apiclient_key.pem \
-  --apiv3 YOUR_APIV3_KEY \
+  --apiv3 "$WECHAT_API_V3_KEY" \
   --output ./wechatpay_cert.pem
 ```
 
@@ -72,12 +72,13 @@ supabase functions deploy create-refund
 ### Set secrets (one time):
 
 ```bash
+# Replace each <PLACEHOLDER> with your actual value — never commit the filled-in version
 supabase secrets set \
-  WECHAT_APP_ID=wx6dd6788cc6673855 \
-  WECHAT_APP_SECRET=xxxxxxxxxxxxxxxxxx \
-  WECHAT_MCH_ID=1111338428 \
-  WECHAT_API_V3_KEY=32charsapiv3key................ \
-  WECHAT_MERCHANT_SERIAL_NO=5E5F...YOUR_SERIAL... \
+  WECHAT_APP_ID=<YOUR_MINI_PROGRAM_APPID> \
+  WECHAT_APP_SECRET=<YOUR_MINI_PROGRAM_APPSECRET> \
+  WECHAT_MCH_ID=<YOUR_MCH_ID> \
+  WECHAT_API_V3_KEY=<YOUR_32CHAR_APIV3_KEY> \
+  WECHAT_MERCHANT_SERIAL_NO=<YOUR_MERCHANT_CERT_SERIAL> \
   NOTIFY_URL=https://vgvchsjarhyghficuwzc.supabase.co/functions/v1/payment-notify
 
 # Multi-line secrets must come from a file
