@@ -27,3 +27,9 @@ dist-ssr
 # Aliyun OSS deploy credentials
 .aliyun-credentials
 .ossutilconfig
+
+# Claude Code local state (worktrees, scheduled tasks, etc.)
+.claude/
+
+# Supabase CLI local state (linked project ref, pooler URL, etc.)
+supabase/.temp/
