@@ -91,11 +91,11 @@ const StoreContext = createContext(null);
 
 // Map DB row → app shape
 const mapCoach = (r) => ({ id: r.id, name: r.name, level: r.level, specialties: r.specialties || [], price: r.price_per_hour, avatar: r.avatar_url, availableSlots: r.available_slots || [], status: r.status, closedDates: r.closed_dates || [], closedSlots: r.closed_slots || [] });
-const mapCourse = (r) => ({ id: r.id, title: r.title, desc: r.description, emoji: r.emoji, lessons: r.lessons, price: r.price, coverImage: r.cover_url, outline: r.outline || [], enrolled: r.enrolled, status: r.status });
+const mapCourse = (r) => ({ id: r.id, title: r.title, desc: r.description, emoji: r.emoji, lessons: r.lessons, price: r.price, coverImage: r.cover_url, outline: r.outline || [], enrolled: r.enrolled, status: r.status, descriptionDetail: r.description_detail || '', highlights: r.highlights || [], rules: r.rules || '', coverDetailUrl: r.cover_detail_url || null });
 const mapActivity = (r) => ({ id: r.id, title: r.title, type: r.type, emoji: r.emoji, date: r.date, time: r.time, location: r.location, spots: r.spots, cost: r.cost, rewards: r.rewards || [], enrolledUsers: r.enrolled_users || [], rewardDistributed: r.reward_distributed, tableId: r.table_id, tableSlot: r.table_slot, status: r.status, occupiedTableCount: r.occupied_table_count || 0, occupiedTimeSlots: r.occupied_time_slots || [], minParticipants: r.min_participants || 0 });
 const mapTable = (r) => ({ id: r.id, name: r.name, pricePerHour: r.price_per_hour, status: r.status, closedDates: r.closed_dates || [], unavailableSlots: r.unavailable_slots || [], openWeekendDates: r.open_weekend_dates || [] });
 const mapBooking = (r) => ({ id: r.id, userId: r.user_id, user: r.user_name, type: r.type, targetId: r.target_id, targetName: r.target_name, detail: r.detail, date: r.date, slots: r.time_slots || [], duration: Number(r.duration), payMethod: r.payment_method === "course_card" ? "课程卡" : "微信支付", cost: Number(r.amount), cardId: r.card_id, cardDeduct: Number(r.card_deduct || 0), status: r.status, refunded: r.refunded, refundAmount: Number(r.refund_amount || 0), cancelledAt: r.cancelled_at, createdAt: r.created_at });
-const mapPost = (r) => ({ id: r.id, user: r.user_name, avatar: r.user_avatar, time: timeSince(r.created_at), content: r.content, type: r.type, voteYes: r.vote_yes, voteNo: r.vote_no, likes: r.likes, comments: r.comments, pinned: r.is_pinned, voted: false });
+const mapPost = (r) => ({ id: r.id, userId: r.user_id, user: r.user_name, avatar: r.user_avatar, time: timeSince(r.created_at), content: r.content, type: r.type, voteYes: r.vote_yes, voteNo: r.vote_no, likes: r.likes, comments: r.comments, pinned: r.is_pinned, voted: false, liked: false });
 const mapCard = (r) => ({ id: r.id, userId: r.user_id, courseId: r.course_id, name: r.course_name, total: Number(r.total_lessons), remaining: Number(r.remaining_lessons), date: r.purchase_date });
 const mapTx = (r) => ({ id: r.id, userId: r.user_id, desc: r.description, amount: Number(r.amount), time: timeSince(r.created_at), payType: r.type, createdAt: r.created_at });
 const mapUser = (r) => ({ id: r.id, nickname: r.nickname, avatarUrl: r.avatar_url, avatarColor: r.avatar_color || "#6C5CE7", coins: r.coins, phone: r.phone || null, createdAt: r.created_at });
@@ -227,12 +227,34 @@ export function StoreProvider({ children }) {
     if (aRes.data) setActivities(aRes.data.map(mapActivity));
     if (tRes.data) setTables(tRes.data.map(mapTable));
     if (bRes.data) setBookings(bRes.data.map(mapBooking));
-    if (pRes.data) setPosts(pRes.data.map(mapPost));
+    // 登录用户：加载他的点赞记录，标记 liked
+    let likedIdsInit = new Set();
+    if (userId) {
+      const { data: likes } = await supabase.from("post_likes").select("post_id").eq("user_id", userId);
+      if (likes) likedIdsInit = new Set(likes.map(l => l.post_id));
+    }
+    if (pRes.data) setPosts(pRes.data.map(r => ({ ...mapPost(r), liked: likedIdsInit.has(r.id) })));
     if (auRes.data) setAllUsers(auRes.data.map(mapUser));
     setLoading(false);
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // 登录/登出时刷新点赞状态（不需要重拉所有帖子）
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!userId) {
+        setPosts(ps => ps.map(p => ({ ...p, liked: false })));
+        return;
+      }
+      const { data: likes } = await supabase.from("post_likes").select("post_id").eq("user_id", userId);
+      if (cancelled) return;
+      const likedIds = new Set((likes || []).map(l => l.post_id));
+      setPosts(ps => ps.map(p => ({ ...p, liked: likedIds.has(p.id) })));
+    })();
+    return () => { cancelled = true; };
+  }, [userId]);
 
   // ---- PHONE LOGIN ----
   const loginWithPhone = useCallback(async (phone) => {
@@ -267,13 +289,32 @@ export function StoreProvider({ children }) {
     setCourseCards([]); setHistory([]); setJoinedIds([]); setIsLoggedIn(false);
   }, []);
 
+  // Login overlay: any protected action calls requireLogin(actionLabel).
+  // If not logged in, shows confirm prompt and opens the LoginPage overlay.
+  const [showLogin, setShowLogin] = useState(false);
+  const requireLogin = useCallback((actionLabel = "使用此功能") => {
+    if (userId) return true;
+    const ok = window.confirm(`请先登录后再操作\n\n${actionLabel}需要登录会员账号。\n\n点击"确定"前往登录。`);
+    if (ok) setShowLogin(true);
+    return false;
+  }, [userId]);
+
   // Refresh helpers
   const refetchCoaches = async () => { const { data } = await supabase.from("coaches").select("*").order("id"); if (data) setCoaches(data.map(mapCoach)); };
   const refetchCourses = async () => { const { data } = await supabase.from("courses").select("*").order("id"); if (data) setCourses(data.map(mapCourse)); };
   const refetchActivities = async () => { const { data } = await supabase.from("activities").select("*").order("id"); if (data) setActivities(data.map(mapActivity)); };
   const refetchTables = async () => { const { data } = await supabase.from("tables").select("*").order("id"); if (data) setTables(data.map(mapTable)); };
   const refetchBookings = async () => { const { data } = await supabase.from("bookings").select("*").order("created_at", { ascending: false }); if (data) setBookings(data.map(mapBooking)); };
-  const refetchPosts = async () => { const { data } = await supabase.from("posts").select("*").order("created_at", { ascending: false }); if (data) setPosts(data.map(mapPost)); };
+  const refetchPosts = async () => {
+    const { data } = await supabase.from("posts").select("*").order("created_at", { ascending: false });
+    if (!data) return;
+    let likedIds = new Set();
+    if (userId) {
+      const { data: likes } = await supabase.from("post_likes").select("post_id").eq("user_id", userId);
+      if (likes) likedIds = new Set(likes.map(l => l.post_id));
+    }
+    setPosts(data.map(r => ({ ...mapPost(r), liked: likedIds.has(r.id) })));
+  };
   const refetchUsers = async () => { const { data } = await supabase.from("users").select("*").order("id"); if (data) setAllUsers(data.map(mapUser)); };
   const refetchUser = async () => {
     if (!userId) return;
@@ -299,17 +340,36 @@ export function StoreProvider({ children }) {
     });
   };
 
-  // Content moderation — basic keyword filter (replace with WeChat msgSecCheck in production)
-  const SENSITIVE_WORDS = ["赌博", "色情", "暴力", "毒品", "枪支", "反动", "邪教", "诈骗", "传销", "洗钱"];
-  const checkContent = (text) => {
-    for (const word of SENSITIVE_WORDS) {
-      if (text.includes(word)) return { ok: false, msg: "内容包含违规信息，请修改后重试" };
+  // 内容安全检测 — 调用 Supabase Edge Function (content-check)，走微信官方 msg_sec_check
+  // 网页版没有 openid，Edge Function 会自动降级为 version=1 旧版文本检测
+  // scene: 1=资料 2=评论 3=论坛 4=社交日志
+  const checkContent = async (text, scene = 2) => {
+    const content = (text || "").trim();
+    if (!content) return { ok: false, msg: "内容不能为空" };
+    try {
+      // 10s 超时——避免审核服务慢/挂时卡死 UI
+      const invoke = supabase.functions.invoke("content-check", { body: { content, scene } });
+      const timeout = new Promise((_, rej) => setTimeout(() => {
+        const err = new Error("checkContent timeout"); err.isTimeout = true; rej(err);
+      }, 10000));
+      const { data, error } = await Promise.race([invoke, timeout]);
+      if (error) {
+        // Edge Function 出错时 fail-open 放行（用户体验优先），日志留痕
+        console.error("[checkContent] Edge Function error（fail-open 放行）:", error);
+        return { ok: true, _failOpen: true };
+      }
+      if (data?.ok) return { ok: true };
+      return { ok: false, msg: data?.msg || "内容包含违规信息，请修改后重试" };
+    } catch (e) {
+      // 超时/网络异常一律 fail-open 放行
+      console.error("[checkContent] 请求异常（fail-open 放行）:", e);
+      return { ok: true, _failOpen: true };
     }
-    return { ok: true };
   };
 
   // ---- USER ACTIONS ----
   const bookCoachWechat = useCallback(async (coach, selectedSlots, dateLabel) => {
+    if (!requireLogin("预约教练")) return;
     const dur = slotsDuration(selectedSlots);
     const cost = Math.round(coach.price * dur);
     const range = slotsRange(selectedSlots);
@@ -326,6 +386,7 @@ export function StoreProvider({ children }) {
   }, [userId, userName]);
 
   const bookCoachCard = useCallback(async (coach, selectedSlots, dateLabel, cardId) => {
+    if (!requireLogin("使用课程卡预约")) return;
     const dur = slotsDuration(selectedSlots);
     const deduct = dur;
     const range = slotsRange(selectedSlots);
@@ -343,6 +404,7 @@ export function StoreProvider({ children }) {
   }, [userId, userName, courseCards]);
 
   const buyCourse = useCallback(async (course) => {
+    if (!requireLogin("购买课程")) return;
     // TODO: Replace simulateWechatPay with real WeChat Pay API
     const ok = await simulateWechatPay(course.price, `购买课程: ${course.title}`);
     if (ok) {
@@ -350,13 +412,14 @@ export function StoreProvider({ children }) {
       const cn = chinaDate();
       await supabase.from("course_cards").insert({ user_id: userId, course_id: course.id, course_name: course.title, total_lessons: course.lessons, remaining_lessons: course.lessons, purchase_date: `${cn.getMonth() + 1}/${cn.getDate()}` });
       await addTx(`购买课程: ${course.title}`, -course.price, "wechat");
-      setResultModal({ type: "success", title: "购买成功", msg: `已购买 ${course.title}，获得 ${course.lessons} 课时（课程卡不可退款）` });
+      setResultModal({ type: "success", title: "购买成功", msg: `已购买 ${course.title}，获得 ${course.lessons} 课时（课程卡支持退款，已消耗课时按单节课价格结算）` });
       await refetchCourses();
       await refetchUser();
     }
   }, [userId]);
 
   const joinActivity = useCallback(async (activity) => {
+    if (!requireLogin("报名活动")) return;
     // TODO: Replace simulateWechatPay with real WeChat Pay API
     const ok = activity.cost > 0 ? await simulateWechatPay(activity.cost, `报名: ${activity.title}`) : true;
     if (ok) {
@@ -398,6 +461,7 @@ export function StoreProvider({ children }) {
   }, [userId, userName]);
 
   const bookTable = useCallback(async (selectedSlots, dateKey) => {
+    if (!requireLogin("预约球台")) return;
     const dur = slotsDuration(selectedSlots);
     const avgPrice = tables.length > 0 ? Math.round(tables.reduce((s, t) => s + t.pricePerHour, 0) / tables.length) : 15;
     const cost = Math.round(avgPrice * dur);
@@ -452,22 +516,58 @@ export function StoreProvider({ children }) {
     await refetchBookings();
   }, []);
 
-  const rejectBooking = useCallback(async (id) => {
+  // mode: 'full' (全额退款) | 'rule' (按 24h 规则) | 'none' (不退款)
+  // reason: 管理员填写的原因（可空），写入 transaction 备注
+  const rejectBooking = useCallback(async (id, mode = 'full', reason = '') => {
     const b = bookings.find(x => x.id === id);
-    if (!b) return;
+    if (!b) return { ok: false, msg: "预约不存在" };
     const targetUserId = b.userId || userId;
-    if (b.payMethod === "微信支付" && b.cost > 0) {
-      // TODO: Replace with real WeChat refund API
-      await addTx(`拒绝退款(原路退回): ${b.detail}`, b.cost, "wechat_refund", targetUserId);
-    } else if (b.payMethod === "课程卡" && b.cardId && b.cardDeduct) {
-      const { data: c } = await supabase.from("course_cards").select("remaining_lessons").eq("id", b.cardId).single();
-      if (c) await supabase.from("course_cards").update({ remaining_lessons: Number(c.remaining_lessons) + b.cardDeduct }).eq("id", b.cardId);
-      await addTx(`退还课程卡: ${b.detail}`, b.cardDeduct, "course_card", targetUserId);
+    const reasonSuffix = reason ? `（原因：${reason}）` : '';
+
+    // 按规则退款：24h 内取消扣 50%，否则全额
+    let rate = 1.0;
+    if (mode === 'rule' && b.date) {
+      const now = new Date();
+      const [mon, day] = b.date.split('/').map(Number);
+      const firstSlot = b.slots?.[0] || '09:00';
+      const [hh, mm] = firstSlot.split(':').map(Number);
+      const bookDate = new Date(now.getFullYear(), mon - 1, day, hh, mm);
+      if ((bookDate - now) / (1000 * 60 * 60) <= 24) rate = 0.5;
     }
-    await supabase.from("bookings").update({ status: "已拒绝", refunded: true }).eq("id", id);
+    const factor = mode === 'none' ? 0 : (mode === 'rule' ? rate : 1);
+
+    let refundAmt = 0;
+    if (b.payMethod === "微信支付" && b.cost > 0) {
+      refundAmt = Math.round(b.cost * factor);
+      if (refundAmt > 0) {
+        // TODO: Replace with real WeChat refund API
+        const modeLabel = mode === 'full' ? '全额' : (mode === 'rule' && rate < 1 ? '50%（按规则）' : '全额（按规则）');
+        await addTx(`管理员拒绝预约-${modeLabel}退款(原路退回): ${b.detail}${reasonSuffix}`, refundAmt, "wechat_refund", targetUserId);
+      } else {
+        await addTx(`管理员拒绝预约-不退款: ${b.detail}${reasonSuffix}`, 0, "wechat_refund", targetUserId);
+      }
+    } else if (b.payMethod === "课程卡" && b.cardId && b.cardDeduct) {
+      refundAmt = Math.round(b.cardDeduct * factor);
+      if (refundAmt > 0) {
+        const { data: c } = await supabase.from("course_cards").select("remaining_lessons").eq("id", b.cardId).single();
+        if (c) await supabase.from("course_cards").update({ remaining_lessons: Number(c.remaining_lessons) + refundAmt }).eq("id", b.cardId);
+        const modeLabel = mode === 'full' ? '全额' : (mode === 'rule' && rate < 1 ? '50%（按规则）' : '全额（按规则）');
+        await addTx(`管理员拒绝预约-${modeLabel}退还课程卡(${refundAmt}次): ${b.detail}${reasonSuffix}`, refundAmt, "course_card", targetUserId);
+      } else {
+        await addTx(`管理员拒绝预约-不退课程卡: ${b.detail}${reasonSuffix}`, 0, "course_card", targetUserId);
+      }
+    }
+
+    await supabase.from("bookings").update({
+      status: "已拒绝",
+      refunded: refundAmt > 0,
+      refund_amount: refundAmt,
+      cancelled_at: new Date().toISOString(),
+    }).eq("id", id);
     await refetchBookings();
     await refetchUser();
     await refetchUsers();
+    return { ok: true, refundAmt, mode };
   }, [bookings, userId]);
 
   const distributeReward = useCallback(async (activityId, rankAssignments) => {
@@ -483,38 +583,70 @@ export function StoreProvider({ children }) {
   }, [userId, userName]);
 
   // Community
+  // 社区动作：返回 { ok, msg } 由调用方（社区页）自己弹窗，提示不跨页
   const addPost = useCallback(async (content) => {
-    const check = checkContent(content);
-    if (!check.ok) { setResultModal({ type: "fail", title: "发布失败", msg: check.msg }); return; }
+    if (!requireLogin("发布动态")) return { ok: false, msg: "请先登录" };
+    const check = await checkContent(content, 3); // 3=论坛
+    if (!check.ok) return { ok: false, msg: check.msg };
     await supabase.from("posts").insert({ user_id: userId, user_name: userName, user_avatar: "🙋", content, type: "动态" });
     await refetchPosts();
-  }, [userId, userName]);
+    return { ok: true };
+  }, [userId, userName, requireLogin]);
 
   const likePost = useCallback(async (id) => {
+    if (!requireLogin("点赞")) return;
     const p = posts.find(x => x.id === id);
-    if (p) await supabase.from("posts").update({ likes: p.likes + 1 }).eq("id", id);
-    await refetchPosts();
-  }, [posts]);
+    if (!p) return;
+    // 乐观更新：立即翻转 liked + 调整 likes 计数
+    const wasLiked = !!p.liked;
+    const nextLiked = !wasLiked;
+    const delta = nextLiked ? 1 : -1;
+    setPosts(ps => ps.map(x => x.id === id ? { ...x, liked: nextLiked, likes: Math.max(0, (x.likes || 0) + delta) } : x));
+    try {
+      if (wasLiked) {
+        await supabase.from("post_likes").delete().eq("post_id", id).eq("user_id", userId);
+        await supabase.from("posts").update({ likes: Math.max(0, (p.likes || 0) - 1) }).eq("id", id);
+      } else {
+        await supabase.from("post_likes").insert({ post_id: id, user_id: userId });
+        await supabase.from("posts").update({ likes: (p.likes || 0) + 1 }).eq("id", id);
+      }
+    } catch (err) {
+      console.error("[Store] likePost failed, rolling back:", err);
+      setPosts(ps => ps.map(x => x.id === id ? { ...x, liked: wasLiked, likes: p.likes || 0 } : x));
+      await refetchPosts();
+    }
+  }, [posts, userId, requireLogin]);
 
   const votePost = useCallback(async (id, vote) => {
+    if (!requireLogin("投票")) return;
     const p = posts.find(x => x.id === id);
     if (!p) return;
     const upd = vote === "yes" ? { vote_yes: p.voteYes + 1 } : { vote_no: p.voteNo + 1 };
     await supabase.from("posts").update(upd).eq("id", id);
     setPosts(ps => ps.map(x => x.id === id ? { ...x, voted: vote, voteYes: x.voteYes + (vote === "yes" ? 1 : 0), voteNo: x.voteNo + (vote === "no" ? 1 : 0) } : x));
-  }, [posts]);
+  }, [posts, requireLogin]);
 
   const editPost = useCallback(async (id, newContent) => {
-    const check = checkContent(newContent);
-    if (!check.ok) { setResultModal({ type: 'fail', title: '编辑失败', msg: check.msg }); return; }
+    if (!requireLogin("编辑动态")) return { ok: false, msg: "请先登录" };
+    const p = posts.find(x => x.id === id);
+    if (!p) return { ok: false, msg: "帖子不存在" };
+    if (!userId || p.userId !== userId) return { ok: false, msg: "只能编辑自己的帖子" };
+    const check = await checkContent(newContent, 3);
+    if (!check.ok) return { ok: false, msg: check.msg };
     await supabase.from("posts").update({ content: newContent }).eq("id", id);
     await refetchPosts();
-  }, []);
+    return { ok: true };
+  }, [posts, userId, requireLogin]);
 
   const deletePost = useCallback(async (id) => {
+    if (!requireLogin("删除动态")) return { ok: false, msg: "请先登录" };
+    const p = posts.find(x => x.id === id);
+    if (!p) return { ok: false, msg: "帖子不存在" };
+    if (!userId || p.userId !== userId) return { ok: false, msg: "只能删除自己的帖子" };
     await supabase.from("posts").delete().eq("id", id);
     await refetchPosts();
-  }, []);
+    return { ok: true };
+  }, [posts, userId, requireLogin]);
 
   const fetchComments = useCallback(async (postId) => {
     const { data } = await supabase.from("comments").select("*").eq("post_id", postId).order("created_at", { ascending: true });
@@ -522,13 +654,48 @@ export function StoreProvider({ children }) {
   }, []);
 
   const addComment = useCallback(async (postId, content) => {
-    const check = checkContent(content);
-    if (!check.ok) { setResultModal({ type: "fail", title: "发布失败", msg: check.msg }); return; }
-    await supabase.from("comments").insert({ post_id: postId, user_id: userId, user_name: userName, user_avatar: "🙋", content });
+    if (!requireLogin("评论")) return { ok: false, msg: "请先登录" };
+    const check = await checkContent(content, 2);
+    if (!check.ok) return { ok: false, msg: check.msg };
+    // 乐观更新：本地 posts.comments 计数立即 +1（评论列表由调用方处理）
+    setPosts(ps => ps.map(x => x.id === postId ? { ...x, comments: (x.comments || 0) + 1 } : x));
     const p = posts.find(x => x.id === postId);
-    if (p) await supabase.from("posts").update({ comments: (p.comments || 0) + 1 }).eq("id", postId);
-    await refetchPosts();
+    try {
+      const { data: inserted } = await supabase.from("comments").insert({ post_id: postId, user_id: userId, user_name: userName, user_avatar: "🙋", content }).select().single();
+      if (p) await supabase.from("posts").update({ comments: (p.comments || 0) + 1 }).eq("id", postId);
+      await refetchPosts();
+      return { ok: true, comment: inserted };
+    } catch (err) {
+      setPosts(ps => ps.map(x => x.id === postId ? { ...x, comments: Math.max(0, (x.comments || 0) - 1) } : x));
+      console.error("[Store] addComment failed:", err);
+      return { ok: false, msg: "评论失败，请稍后重试" };
+    }
   }, [userId, userName, posts]);
+
+  // 编辑评论：仅作者；过内容检测
+  const editComment = useCallback(async (commentId, newContent) => {
+    if (!requireLogin("编辑评论")) return { ok: false, msg: "请先登录" };
+    const { data: c } = await supabase.from("comments").select("user_id").eq("id", commentId).single();
+    if (!c) return { ok: false, msg: "评论不存在" };
+    if (!userId || c.user_id !== userId) return { ok: false, msg: "只能编辑自己的评论" };
+    const check = await checkContent(newContent, 2);
+    if (!check.ok) return { ok: false, msg: check.msg };
+    await supabase.from("comments").update({ content: newContent }).eq("id", commentId);
+    return { ok: true };
+  }, [userId, requireLogin]);
+
+  // 删除评论：仅作者；帖子的 comments 计数减 1
+  const deleteComment = useCallback(async (commentId, postId) => {
+    if (!requireLogin("删除评论")) return { ok: false, msg: "请先登录" };
+    const { data: c } = await supabase.from("comments").select("user_id").eq("id", commentId).single();
+    if (!c) return { ok: false, msg: "评论不存在" };
+    if (!userId || c.user_id !== userId) return { ok: false, msg: "只能删除自己的评论" };
+    await supabase.from("comments").delete().eq("id", commentId);
+    const p = posts.find(x => x.id === postId);
+    if (p) await supabase.from("posts").update({ comments: Math.max(0, (p.comments || 0) - 1) }).eq("id", postId);
+    await refetchPosts();
+    return { ok: true };
+  }, [userId, posts, requireLogin]);
 
   // Profile
   const setUserName = useCallback(async (name) => {
@@ -559,12 +726,32 @@ export function StoreProvider({ children }) {
 
   // ---- ADMIN CRUD (Courses) ----
   const adminSaveCourse = useCallback(async (item) => {
-    const row = { title: item.title, description: item.desc, emoji: item.emoji, lessons: item.lessons, price: item.price, cover_url: item.coverImage, outline: item.outline || [], enrolled: item.enrolled || 0, status: item.status };
+    const row = {
+      title: item.title, description: item.desc, emoji: item.emoji, lessons: item.lessons, price: item.price,
+      cover_url: item.coverImage, outline: item.outline || [], enrolled: item.enrolled || 0, status: item.status,
+      description_detail: item.descriptionDetail || '',
+      highlights: item.highlights || [],
+      rules: item.rules || '',
+      cover_detail_url: item.coverDetailUrl || null,
+    };
     if (item.id) await supabase.from("courses").update(row).eq("id", item.id);
     else await supabase.from("courses").insert(row);
     await refetchCourses();
   }, []);
-  const adminDeleteCourse = useCallback(async (id) => { await supabase.from("courses").delete().eq("id", id); await refetchCourses(); }, []);
+  // 删除课程：先尝试硬删除；若被外键约束阻止（已有用户的课程卡引用 course_id），自动改为软删除（status='archived'）
+  const adminDeleteCourse = useCallback(async (id) => {
+    const { error } = await supabase.from("courses").delete().eq("id", id);
+    if (error) {
+      // PG 外键 violation: code '23503'。其他错误也走软删除兜底，避免静默失败。
+      const isFK = error.code === '23503' || /foreign key|violates|references/i.test(error.message || '');
+      const { error: softErr } = await supabase.from("courses").update({ status: 'archived' }).eq("id", id);
+      await refetchCourses();
+      if (softErr) return { ok: false, msg: softErr.message };
+      return { ok: true, soft: true, msg: isFK ? '该课程已有用户购买课程卡，无法直接删除，已改为下架（archived）' : '已改为下架（archived）' };
+    }
+    await refetchCourses();
+    return { ok: true, soft: false };
+  }, []);
 
   // ---- ADMIN CRUD (Activities) ----
   const adminSaveActivity = useCallback(async (item) => {
@@ -694,6 +881,55 @@ export function StoreProvider({ children }) {
     return { ok: true };
   }, []);
 
+  // ---- ADMIN: Bulk create users from CSV/Excel/textarea ----
+  // rows: [{ phone, nickname }] — caller is responsible for parsing the input
+  // Behavior: skips rows whose phone already exists (no overwrite), skips invalid rows,
+  // returns { added, skipped, failed, details: [{phone, nickname, status, msg}] }.
+  const adminBulkCreateUsers = useCallback(async (rows) => {
+    const result = { added: 0, skipped: 0, failed: 0, details: [] };
+    if (!Array.isArray(rows) || rows.length === 0) return result;
+
+    // 1) snapshot of existing phones (one round-trip)
+    const { data: existingRows } = await supabase.from("users").select("phone");
+    const existingPhones = new Set((existingRows || []).map(r => r.phone).filter(Boolean));
+
+    // 2) within-batch dedupe (only first occurrence of a phone is processed)
+    const seen = new Set();
+    const toInsert = [];
+    for (const raw of rows) {
+      const phone = String(raw.phone || "").replace(/\D/g, "");
+      const nickname = (raw.nickname || "").toString().trim() || "球友";
+      if (!/^1\d{10}$/.test(phone)) {
+        result.failed++;
+        result.details.push({ phone: raw.phone || "", nickname, status: "failed", msg: "手机号格式错误" });
+        continue;
+      }
+      if (existingPhones.has(phone) || seen.has(phone)) {
+        result.skipped++;
+        result.details.push({ phone, nickname, status: "skipped", msg: "已存在" });
+        continue;
+      }
+      seen.add(phone);
+      toInsert.push({ phone, nickname, avatar_color: randomAvatarColor(), coins: 0 });
+    }
+
+    // 3) batch insert (Supabase supports array insert)
+    if (toInsert.length > 0) {
+      const { error } = await supabase.from("users").insert(toInsert);
+      if (error) {
+        // Insert failed wholesale → report all as failed; caller decides what to do.
+        result.failed += toInsert.length;
+        toInsert.forEach(u => result.details.push({ phone: u.phone, nickname: u.nickname, status: "failed", msg: error.message || "数据库写入失败" }));
+      } else {
+        result.added += toInsert.length;
+        toInsert.forEach(u => result.details.push({ phone: u.phone, nickname: u.nickname, status: "added" }));
+      }
+    }
+
+    await refetchUsers();
+    return result;
+  }, []);
+
   // ---- ADMIN: Delete user and all related data ----
   const adminDeleteUser = useCallback(async (uid) => {
     await supabase.from("comments").delete().eq("user_id", uid);
@@ -765,6 +1001,82 @@ export function StoreProvider({ children }) {
     await refetchCoaches();
   }, []);
 
+  // ============================================================
+  // 社区未读消息（与小程序端逻辑一致）
+  // ============================================================
+  const [unreadCommunity, setUnreadCommunity] = useState(0);
+
+  const getCommunityUnreadCount = useCallback(async () => {
+    if (!userId) return 0;
+    try {
+      const { data: u } = await supabase.from("users").select("last_community_visit").eq("id", userId).single();
+      const since = (u && u.last_community_visit) || "1970-01-01T00:00:00Z";
+
+      const [myPostsRes, myLikesRes, myCommentsRes] = await Promise.all([
+        supabase.from("posts").select("id").eq("user_id", userId),
+        supabase.from("post_likes").select("post_id").eq("user_id", userId),
+        supabase.from("comments").select("post_id").eq("user_id", userId),
+      ]);
+      const myPostIds = (myPostsRes.data || []).map(r => r.id);
+      const relevantPostIds = new Set([
+        ...myPostIds,
+        ...((myLikesRes.data || []).map(r => r.post_id)),
+        ...((myCommentsRes.data || []).map(r => r.post_id)),
+      ]);
+      if (relevantPostIds.size === 0 && myPostIds.length === 0) return 0;
+
+      let commentCount = 0;
+      if (relevantPostIds.size > 0) {
+        const { data: cmts } = await supabase
+          .from("comments").select("id")
+          .in("post_id", [...relevantPostIds])
+          .neq("user_id", userId)
+          .gt("created_at", since);
+        commentCount = (cmts || []).length;
+      }
+      let likeCount = 0;
+      if (myPostIds.length > 0) {
+        const { data: lks } = await supabase
+          .from("post_likes").select("id")
+          .in("post_id", myPostIds)
+          .neq("user_id", userId)
+          .gt("created_at", since);
+        likeCount = (lks || []).length;
+      }
+      return commentCount + likeCount;
+    } catch (err) {
+      console.error("[Store] getCommunityUnreadCount failed:", err);
+      return 0;
+    }
+  }, [userId]);
+
+  const refreshCommunityUnread = useCallback(async () => {
+    if (!userId) { setUnreadCommunity(0); return 0; }
+    const n = await getCommunityUnreadCount();
+    setUnreadCommunity(n);
+    return n;
+  }, [userId, getCommunityUnreadCount]);
+
+  const markCommunityVisited = useCallback(async () => {
+    if (!userId) return;
+    const now = new Date().toISOString();
+    try { await supabase.from("users").update({ last_community_visit: now }).eq("id", userId); } catch (e) { /* ignore */ }
+    setUnreadCommunity(0);
+  }, [userId]);
+
+  // 登录后初次拉取 + 60s 轮询 + 浏览器从后台切回前台时刷新
+  useEffect(() => {
+    if (!userId) { setUnreadCommunity(0); return; }
+    refreshCommunityUnread();
+    const timer = setInterval(() => { refreshCommunityUnread(); }, 60 * 1000);
+    const onVis = () => { if (document.visibilityState === "visible") refreshCommunityUnread(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [userId, refreshCommunityUnread]);
+
   // ---- 16-hour cutoff: slot is not bookable if within 16h of now (China time) ----
   const isSlotPastCutoff = useCallback((dateKey, hour) => {
     const now = chinaDate();
@@ -779,17 +1091,19 @@ export function StoreProvider({ children }) {
     loading, coaches, courses, activities, tables, bookings, posts, allUsers,
     courseCards, history, joinedIds, resultModal, isLoggedIn, userPhone,
     userName, userAvatar, userAvatarColor, userId,
+    showLogin, setShowLogin, requireLogin,
     openWeekendDates, getSlotOccupancy, getSlotStatus, totalTables, isCoachSlotBooked, setTables,
     setResultModal, setUserName, setUserAvatar, randomizeAvatar,
     loginWithPhone, logout,
     bookCoachWechat, bookCoachCard, buyCourse, joinActivity, cancelActivityEnrollment, bookTable, cancelBooking,
-    addPost, editPost, deletePost, likePost, votePost, fetchComments, addComment,
+    addPost, editPost, deletePost, likePost, votePost, fetchComments, addComment, editComment, deleteComment,
+    unreadCommunity, refreshCommunityUnread, markCommunityVisited,
     approveBooking, rejectBooking, distributeReward,
     adminSaveCoach, adminDeleteCoach, adminSaveCourse, adminDeleteCourse,
     adminSaveActivity, adminDeleteActivity, adminCancelActivity, adminCancelUserEnrollment, adminSaveTable, adminDeleteTable,
     adminToggleTableSlot, adminToggleWeekendDate, adminDeletePost, adminPinPost,
     adminUpdateUser, adminCreateCard, adminUpdateCardRemaining, adminGetUserCards,
-    adminGetUserTransactions, adminCreateUser, adminDeleteUser, adminUpdateUserPhone,
+    adminGetUserTransactions, adminCreateUser, adminBulkCreateUsers, adminDeleteUser, adminUpdateUserPhone,
     adminBookForUser, adminEnrollForUser,
     adminUpdateCoachClosedDates, adminUpdateCoachClosedSlots, isSlotPastCutoff,
     refetchAll: fetchAll, refetchUsers, refetchBookings,

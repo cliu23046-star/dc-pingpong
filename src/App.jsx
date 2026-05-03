@@ -10,6 +10,16 @@ const COLORS = {
 
 const Pill = ({ children, color }) => <span style={{ background: color + "18", color, padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 600, display: "inline-block" }}>{children}</span>;
 
+// 给 Promise 加超时兜底——超时后 reject 一个标记 isTimeout=true 的错误
+function withTimeout(promise, ms, errMsg = "超时") {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => {
+      const err = new Error(errMsg); err.isTimeout = true; reject(err);
+    }, ms)),
+  ]);
+}
+
 const ResultModal = ({ modal, onClose }) => {
   if (!modal) return null;
   return <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
@@ -27,6 +37,7 @@ const CoachPage = () => {
   const [payCardId, setPayCardId] = useState(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState(null);
+  const [booking, setBooking] = useState(false);
   const activeCoaches = coaches.filter(c => c.status === "在职");
   const usableCards = courseCards.filter(c => c.remaining > 0);
 
@@ -66,11 +77,18 @@ const CoachPage = () => {
   const cardDeduct = duration;
   const range = slotsRange(selectedSlots);
 
-  const doBook = () => {
+  const doBook = async () => {
+    if (booking) return;
     if (duration < 1) { setError("最低预约1小时（请至少选2个连续时段）"); return; }
-    if (payMethod === "wechat") bookCoachWechat(selectedCoach, selectedSlots, dateKey);
-    else bookCoachCard(selectedCoach, selectedSlots, dateKey, payCardId);
-    setShowConfirm(false); setSelectedSlots([]);
+    setBooking(true);
+    try {
+      if (payMethod === "wechat") await bookCoachWechat(selectedCoach, selectedSlots, dateKey);
+      else await bookCoachCard(selectedCoach, selectedSlots, dateKey, payCardId);
+    } finally {
+      setBooking(false);
+      setShowConfirm(false);
+      setSelectedSlots([]);
+    }
   };
 
   const tryConfirm = () => {
@@ -129,7 +147,7 @@ const CoachPage = () => {
       <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 24, width: 340 }}>
         <h3 style={{ margin: "0 0 16px", color: COLORS.text }}>确认预约</h3>
         <div style={{ lineHeight: 2, fontSize: 14, color: COLORS.text }}>教练：<b>{selectedCoach.name}</b><br />日期：<b>{selectedDay?.label}</b><br />时段：<b>{range}</b><br />时长：<b>{duration} 小时</b><br />支付：<b>{payMethod === "wechat" ? `¥${cost} 微信支付` : `课程卡 ${usableCards.find(c => c.id === payCardId)?.name}，扣 ${cardDeduct} 次`}</b></div>
-        <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button onClick={() => setShowConfirm(false)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1.5px solid ${COLORS.primary}`, background: "#fff", color: COLORS.primary, fontWeight: 600, cursor: "pointer" }}>取消</button><button onClick={doBook} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.gradient, color: "#fff", fontWeight: 600, cursor: "pointer" }}>确认</button></div>
+        <div style={{ display: "flex", gap: 10, marginTop: 16 }}><button disabled={booking} onClick={() => setShowConfirm(false)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1.5px solid ${COLORS.primary}`, background: "#fff", color: COLORS.primary, fontWeight: 600, cursor: booking ? "not-allowed" : "pointer", opacity: booking ? 0.6 : 1 }}>取消</button><button disabled={booking} onClick={doBook} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: booking ? "#C5C0D6" : COLORS.gradient, color: "#fff", fontWeight: 600, cursor: booking ? "not-allowed" : "pointer" }}>{booking ? "处理中..." : "确认"}</button></div>
       </div>
     </div>}
   </div>;
@@ -149,7 +167,30 @@ const CoursePage = () => {
   const { courses, buyCourse } = useStore();
   const [expanded, setExpanded] = useState(null);
   const [confirm, setConfirm] = useState(null);
+  const [buying, setBuying] = useState(false);
   const activeCourses = courses.filter(c => c.status === "上架");
+  // 兜底：所有路径必须重置 buying + 关弹窗
+  const resetBuyState = () => { setBuying(false); setConfirm(null); };
+  const doBuy = async () => {
+    if (!confirm || buying) return;
+    setBuying(true);
+    // 30s 兜底
+    const timeoutGuard = setTimeout(() => {
+      console.warn("[Course] buy timeout, force reset");
+      resetBuyState();
+      window.alert("网络超时，请重试");
+    }, 30000);
+    try {
+      await buyCourse(confirm);
+    } catch (err) {
+      console.error("[Course] buyCourse failed:", err);
+    } finally {
+      clearTimeout(timeoutGuard);
+      resetBuyState();
+    }
+  };
+  // 取消按钮：buying 时也可点击，永远能跳出"处理中..."
+  const cancelBuy = () => resetBuyState();
 
   return <div style={{ padding: "16px 0" }}><h2 style={{ margin: "0 0 16px", color: COLORS.text, fontSize: 18 }}>📚 课程商城</h2>
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -170,11 +211,11 @@ const CoursePage = () => {
         </div>
       </div>)}
     </div>
-    {confirm && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setConfirm(null)}>
+    {confirm && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={cancelBuy}>
       <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 24, width: 320 }}>
         <h3 style={{ margin: "0 0 12px", color: COLORS.text }}>确认购买</h3>
-        <p style={{ fontSize: 14, color: COLORS.text, margin: "0 0 8px" }}><b>{confirm.title}</b></p><p style={{ fontSize: 14, color: COLORS.textLight, margin: "0 0 12px" }}>价格：¥{confirm.price} · {confirm.lessons}课时<br />购买后将生成课程卡</p><p style={{ fontSize: 12, color: COLORS.danger, margin: "0 0 12px", fontWeight: 600 }}>⚠️ 课程卡购买后不可退款</p>
-        <div style={{ display: "flex", gap: 10 }}><button onClick={() => setConfirm(null)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1.5px solid ${COLORS.primary}`, background: "#fff", color: COLORS.primary, fontWeight: 600, cursor: "pointer" }}>取消</button><button onClick={() => { buyCourse(confirm); setConfirm(null); }} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.gradient, color: "#fff", fontWeight: 600, cursor: "pointer" }}>确认</button></div>
+        <p style={{ fontSize: 14, color: COLORS.text, margin: "0 0 8px" }}><b>{confirm.title}</b></p><p style={{ fontSize: 14, color: COLORS.textLight, margin: "0 0 12px" }}>价格：¥{confirm.price} · {confirm.lessons}课时<br />购买后将生成课程卡</p><p style={{ fontSize: 12, color: COLORS.primary, margin: "0 0 12px", fontWeight: 600 }}>ℹ️ 课程卡支持退款，已消耗课时按单节课价格结算，退还剩余金额</p>
+        <div style={{ display: "flex", gap: 10 }}><button onClick={cancelBuy} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1.5px solid ${COLORS.primary}`, background: "#fff", color: COLORS.primary, fontWeight: 600, cursor: "pointer" }}>取消</button><button disabled={buying} onClick={doBuy} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: buying ? "#C5C0D6" : COLORS.gradient, color: "#fff", fontWeight: 600, cursor: buying ? "not-allowed" : "pointer" }}>{buying ? "处理中..." : "确认"}</button></div>
       </div>
     </div>}
   </div>;
@@ -182,15 +223,43 @@ const CoursePage = () => {
 
 // ======= COMMUNITY PAGE =======
 const CommunityPage = () => {
-  const { posts, addPost, editPost, deletePost, likePost, votePost, fetchComments, addComment, userId, userName } = useStore();
+  const { posts, addPost, editPost, deletePost, likePost, votePost, fetchComments, addComment, editComment, deleteComment, userId, userName } = useStore();
   const [newPost, setNewPost] = useState("");
   const [menuOpen, setMenuOpen] = useState(null);
   const [editModal, setEditModal] = useState(null); // { id, content }
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [commentEditModal, setCommentEditModal] = useState(null);     // { id, postId, content }
+  const [commentDeleteConfirm, setCommentDeleteConfirm] = useState(null); // { id, postId }
+  const [commentMenuOpen, setCommentMenuOpen] = useState(null);       // commentId
   const [openComments, setOpenComments] = useState({}); // { postId: true }
   const [commentLists, setCommentLists] = useState({}); // { postId: [...] }
   const [commentInputs, setCommentInputs] = useState({}); // { postId: "text" }
+  // 本页专属的提示弹窗（不跨页）
+  const [alertModal, setAlertModal] = useState(null);
+  // 防重复点击 + loading
+  const [publishing, setPublishing] = useState(false);
+  const [commentSubmitting, setCommentSubmitting] = useState({}); // { [postId]: true }
   const sorted = [...posts].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+
+  const showAlert = (title, msg) => setAlertModal({ title, msg });
+
+  const doPublish = async () => {
+    if (publishing) return;
+    const text = newPost.trim();
+    if (!text) return;
+    setPublishing(true);
+    try {
+      const res = await withTimeout(addPost(text), 15000, "发布超时");
+      if (res && res.ok) setNewPost("");
+      else showAlert("发布失败", res?.msg || "内容包含违规信息，请修改后重试");
+    } catch (err) {
+      console.error("[Community] addPost threw:", err);
+      showAlert("发布失败", err?.isTimeout ? "网络超时，请重试" : "网络异常，请稍后重试");
+    } finally {
+      // 成功 / 违规 / 异常 / 超时 都复位
+      setPublishing(false);
+    }
+  };
 
   const toggleComments = async (postId) => {
     const isOpen = openComments[postId];
@@ -202,12 +271,85 @@ const CommunityPage = () => {
   };
 
   const doAddComment = async (postId) => {
+    if (commentSubmitting[postId]) return;
     const text = commentInputs[postId]?.trim();
     if (!text) return;
-    await addComment(postId, text);
+    // 乐观插入
+    const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const optimistic = {
+      id: tempId,
+      post_id: postId,
+      user_id: userId,
+      user_name: userName || "我",
+      user_avatar: "🙋",
+      content: text,
+      created_at: new Date().toISOString(),
+      _pending: true,
+    };
+    setCommentLists(p => ({ ...p, [postId]: [...(p[postId] || []), optimistic] }));
     setCommentInputs(p => ({ ...p, [postId]: "" }));
-    const cmts = await fetchComments(postId);
-    setCommentLists(p => ({ ...p, [postId]: cmts }));
+    setCommentSubmitting(p => ({ ...p, [postId]: true }));
+    try {
+      const res = await withTimeout(addComment(postId, text), 15000, "评论超时");
+      if (res && res.ok) {
+        const cmts = await fetchComments(postId);
+        setCommentLists(p => ({ ...p, [postId]: cmts }));
+      } else {
+        setCommentLists(p => ({ ...p, [postId]: (p[postId] || []).filter(c => c.id !== tempId) }));
+        setCommentInputs(p => ({ ...p, [postId]: text }));
+        showAlert("发布失败", res?.msg || "内容包含违规信息，请修改后重试");
+      }
+    } catch (err) {
+      console.error("[Community] addComment threw:", err);
+      setCommentLists(p => ({ ...p, [postId]: (p[postId] || []).filter(c => c.id !== tempId) }));
+      setCommentInputs(p => ({ ...p, [postId]: text }));
+      showAlert("发布失败", err?.isTimeout ? "网络超时，请重试" : "网络异常，请稍后重试");
+    } finally {
+      setCommentSubmitting(p => ({ ...p, [postId]: false }));
+    }
+  };
+
+  const doSaveEditPost = async () => {
+    if (!editModal) return;
+    const res = await editPost(editModal.id, editModal.content);
+    if (res && res.ok) {
+      setEditModal(null);
+    } else {
+      showAlert("编辑失败", res?.msg || "内容包含违规信息，请修改后重试");
+    }
+  };
+
+  const doDeletePost = async () => {
+    const id = deleteConfirm;
+    setDeleteConfirm(null);
+    const res = await deletePost(id);
+    if (res && !res.ok) showAlert("删除失败", res.msg);
+  };
+
+  const doSaveEditComment = async () => {
+    if (!commentEditModal) return;
+    const { id, postId, content } = commentEditModal;
+    const res = await editComment(id, content);
+    if (res && res.ok) {
+      setCommentEditModal(null);
+      const cmts = await fetchComments(postId);
+      setCommentLists(p => ({ ...p, [postId]: cmts }));
+    } else {
+      showAlert("编辑失败", res?.msg || "内容包含违规信息，请修改后重试");
+    }
+  };
+
+  const doDeleteComment = async () => {
+    if (!commentDeleteConfirm) return;
+    const { id, postId } = commentDeleteConfirm;
+    setCommentDeleteConfirm(null);
+    const res = await deleteComment(id, postId);
+    if (res && res.ok) {
+      const cmts = await fetchComments(postId);
+      setCommentLists(p => ({ ...p, [postId]: cmts }));
+    } else if (res) {
+      showAlert("删除失败", res.msg);
+    }
   };
 
   const timeSince = (dateStr) => {
@@ -219,8 +361,8 @@ const CommunityPage = () => {
 
   return <div style={{ padding: "16px 0" }}><h2 style={{ margin: "0 0 12px", color: COLORS.text, fontSize: 18 }}>💬 社区</h2>
     <div style={{ background: COLORS.card, borderRadius: 12, padding: 12, marginBottom: 14, display: "flex", gap: 8 }}>
-      <input value={newPost} onChange={e => setNewPost(e.target.value)} placeholder="分享你的想法..." style={{ flex: 1, border: "none", outline: "none", fontSize: 14, fontFamily: "inherit" }} />
-      <button onClick={() => { if (newPost.trim()) { addPost(newPost.trim()); setNewPost(""); } }} style={{ background: COLORS.gradient, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>发布</button>
+      <input value={newPost} onChange={e => setNewPost(e.target.value)} onKeyDown={e => { if (e.key === "Enter") doPublish(); }} placeholder="分享你的想法..." disabled={publishing} style={{ flex: 1, border: "none", outline: "none", fontSize: 14, fontFamily: "inherit", opacity: publishing ? 0.6 : 1 }} />
+      <button onClick={doPublish} disabled={publishing} style={{ background: publishing ? "#C5C0D6" : COLORS.gradient, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontWeight: 600, fontSize: 13, cursor: publishing ? "not-allowed" : "pointer" }}>{publishing ? "发布中..." : "发布"}</button>
     </div>
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {sorted.map(p => <div key={p.id} style={{ background: COLORS.card, borderRadius: 12, padding: 14, border: p.pinned ? `2px solid ${COLORS.secondary}` : "none", position: "relative" }}>
@@ -228,14 +370,14 @@ const CommunityPage = () => {
           <div style={{ width: 36, height: 36, borderRadius: "50%", background: COLORS.gradient, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "#fff" }}>{p.avatar || "🙋"}</div>
           <div style={{ flex: 1 }}><div style={{ fontWeight: 700, fontSize: 14, color: COLORS.text }}>{p.user}</div><div style={{ fontSize: 12, color: COLORS.textLight }}>{p.time}</div></div>
           {p.pinned && <Pill color={COLORS.secondary}>📌 置顶</Pill>}
-          {/* More menu */}
-          <div style={{ position: "relative" }}>
+          {/* 编辑/删除按钮：只有登录且是帖子作者才看到 */}
+          {userId && p.userId === userId && <div style={{ position: "relative" }}>
             <span onClick={() => setMenuOpen(menuOpen === p.id ? null : p.id)} style={{ cursor: "pointer", fontSize: 18, padding: "4px 8px", borderRadius: 6, color: COLORS.textLight }}>⋯</span>
             {menuOpen === p.id && <div style={{ position: "absolute", right: 0, top: 28, background: "#fff", borderRadius: 10, boxShadow: "0 4px 16px rgba(0,0,0,0.15)", zIndex: 10, overflow: "hidden", width: 120 }}>
               <div onClick={() => { setEditModal({ id: p.id, content: p.content }); setMenuOpen(null); }} style={{ padding: "10px 14px", fontSize: 13, cursor: "pointer", fontWeight: 600, color: COLORS.text, borderBottom: "1px solid #f0f0f0" }}>✏️ 编辑</div>
               <div onClick={() => { setDeleteConfirm(p.id); setMenuOpen(null); }} style={{ padding: "10px 14px", fontSize: 13, cursor: "pointer", fontWeight: 600, color: COLORS.danger }}>🗑️ 删除</div>
             </div>}
-          </div>
+          </div>}
         </div>
         <p style={{ margin: "0 0 8px", fontSize: 14, color: COLORS.text, lineHeight: 1.5 }}>{p.content}</p>
         {p.type === "投票" && <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>
@@ -243,7 +385,10 @@ const CommunityPage = () => {
           <button disabled={p.voted} onClick={() => votePost(p.id, "no")} style={{ flex: 1, padding: "8px", borderRadius: 8, border: "1px solid " + COLORS.secondary, background: p.voted === "no" ? COLORS.secondary + "20" : "#fff", color: COLORS.secondary, fontWeight: 600, cursor: p.voted ? "default" : "pointer" }}>👎 {p.voteNo}</button>
         </div>}
         <div style={{ display: "flex", gap: 16, fontSize: 13, color: COLORS.textLight }}>
-          <span onClick={() => likePost(p.id)} style={{ cursor: "pointer" }}>❤️ {p.likes}</span>
+          <span
+            onClick={() => likePost(p.id)}
+            style={{ cursor: "pointer", color: p.liked ? COLORS.secondary : COLORS.textLight, fontWeight: p.liked ? 700 : 400 }}
+          >{p.liked ? "❤️" : "🤍"} {p.likes}</span>
           <span onClick={() => toggleComments(p.id)} style={{ cursor: "pointer" }}>💬 {p.comments}</span>
         </div>
 
@@ -251,15 +396,23 @@ const CommunityPage = () => {
         {openComments[p.id] && <div style={{ marginTop: 10, borderTop: `1px solid ${COLORS.textLight}20`, paddingTop: 10 }}>
           {(commentLists[p.id] || []).map(c => <div key={c.id} style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "start" }}>
             <div style={{ width: 24, height: 24, borderRadius: "50%", background: COLORS.primaryLight, fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", flexShrink: 0 }}>{c.user_avatar || "🙋"}</div>
-            <div>
+            <div style={{ flex: 1 }}>
               <span style={{ fontWeight: 600, fontSize: 12, color: COLORS.text }}>{c.user_name}</span>
               <span style={{ fontSize: 11, color: COLORS.textLight, marginLeft: 6 }}>{timeSince(c.created_at)}</span>
               <div style={{ fontSize: 13, color: COLORS.text, marginTop: 2 }}>{c.content}</div>
             </div>
+            {/* 评论作者才看到 编辑/删除（需登录） */}
+            {userId && c.user_id === userId && <div style={{ position: "relative" }}>
+              <span onClick={() => setCommentMenuOpen(commentMenuOpen === c.id ? null : c.id)} style={{ cursor: "pointer", fontSize: 14, padding: "2px 6px", borderRadius: 4, color: COLORS.textLight }}>⋯</span>
+              {commentMenuOpen === c.id && <div style={{ position: "absolute", right: 0, top: 22, background: "#fff", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.15)", zIndex: 20, overflow: "hidden", width: 110 }}>
+                <div onClick={() => { setCommentEditModal({ id: c.id, postId: p.id, content: c.content }); setCommentMenuOpen(null); }} style={{ padding: "8px 12px", fontSize: 12, cursor: "pointer", fontWeight: 600, color: COLORS.text, borderBottom: "1px solid #f0f0f0" }}>✏️ 编辑</div>
+                <div onClick={() => { setCommentDeleteConfirm({ id: c.id, postId: p.id }); setCommentMenuOpen(null); }} style={{ padding: "8px 12px", fontSize: 12, cursor: "pointer", fontWeight: 600, color: COLORS.danger }}>🗑️ 删除</div>
+              </div>}
+            </div>}
           </div>)}
           <div style={{ display: "flex", gap: 8 }}>
-            <input value={commentInputs[p.id] || ""} onChange={e => setCommentInputs(prev => ({ ...prev, [p.id]: e.target.value }))} onKeyDown={e => { if (e.key === "Enter") doAddComment(p.id); }} placeholder="写评论..." style={{ flex: 1, border: `1px solid ${COLORS.textLight}40`, borderRadius: 8, padding: "6px 10px", fontSize: 13, outline: "none", fontFamily: "inherit" }} />
-            <button onClick={() => doAddComment(p.id)} style={{ background: COLORS.gradient, color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontWeight: 600, fontSize: 12, cursor: "pointer" }}>发送</button>
+            <input value={commentInputs[p.id] || ""} onChange={e => setCommentInputs(prev => ({ ...prev, [p.id]: e.target.value }))} onKeyDown={e => { if (e.key === "Enter") doAddComment(p.id); }} placeholder="写评论..." disabled={!!commentSubmitting[p.id]} style={{ flex: 1, border: `1px solid ${COLORS.textLight}40`, borderRadius: 8, padding: "6px 10px", fontSize: 13, outline: "none", fontFamily: "inherit", opacity: commentSubmitting[p.id] ? 0.6 : 1 }} />
+            <button onClick={() => doAddComment(p.id)} disabled={!!commentSubmitting[p.id]} style={{ background: commentSubmitting[p.id] ? "#C5C0D6" : COLORS.gradient, color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontWeight: 600, fontSize: 12, cursor: commentSubmitting[p.id] ? "not-allowed" : "pointer" }}>{commentSubmitting[p.id] ? "发送中..." : "发送"}</button>
           </div>
         </div>}
       </div>)}
@@ -272,7 +425,7 @@ const CommunityPage = () => {
         <textarea value={editModal.content} onChange={e => setEditModal(m => ({ ...m, content: e.target.value }))} style={{ width: "100%", minHeight: 100, border: `1px solid ${COLORS.textLight}40`, borderRadius: 10, padding: 12, fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
         <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
           <button onClick={() => setEditModal(null)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${COLORS.primary}`, background: "#fff", color: COLORS.primary, fontWeight: 600, cursor: "pointer" }}>取消</button>
-          <button onClick={() => { editPost(editModal.id, editModal.content); setEditModal(null); }} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.gradient, color: "#fff", fontWeight: 600, cursor: "pointer" }}>保存</button>
+          <button onClick={doSaveEditPost} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.gradient, color: "#fff", fontWeight: 600, cursor: "pointer" }}>保存</button>
         </div>
       </div>
     </div>}
@@ -284,8 +437,41 @@ const CommunityPage = () => {
         <p style={{ fontSize: 14, color: COLORS.textLight, marginBottom: 16 }}>删除后将无法恢复</p>
         <div style={{ display: "flex", gap: 10 }}>
           <button onClick={() => setDeleteConfirm(null)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${COLORS.primary}`, background: "#fff", color: COLORS.primary, fontWeight: 600, cursor: "pointer" }}>取消</button>
-          <button onClick={() => { deletePost(deleteConfirm); setDeleteConfirm(null); }} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.danger, color: "#fff", fontWeight: 600, cursor: "pointer" }}>删除</button>
+          <button onClick={doDeletePost} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.danger, color: "#fff", fontWeight: 600, cursor: "pointer" }}>删除</button>
         </div>
+      </div>
+    </div>}
+
+    {/* Edit comment modal */}
+    {commentEditModal && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }} onClick={() => setCommentEditModal(null)}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: 24, width: 400, maxWidth: "90vw" }} onClick={e => e.stopPropagation()}>
+        <h3 style={{ margin: "0 0 12px", color: COLORS.text }}>编辑评论</h3>
+        <textarea value={commentEditModal.content} onChange={e => setCommentEditModal(m => ({ ...m, content: e.target.value }))} style={{ width: "100%", minHeight: 80, border: `1px solid ${COLORS.textLight}40`, borderRadius: 10, padding: 12, fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
+        <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+          <button onClick={() => setCommentEditModal(null)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${COLORS.primary}`, background: "#fff", color: COLORS.primary, fontWeight: 600, cursor: "pointer" }}>取消</button>
+          <button onClick={doSaveEditComment} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.gradient, color: "#fff", fontWeight: 600, cursor: "pointer" }}>保存</button>
+        </div>
+      </div>
+    </div>}
+
+    {/* Delete comment confirmation */}
+    {commentDeleteConfirm && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }} onClick={() => setCommentDeleteConfirm(null)}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: 24, width: 340, maxWidth: "90vw" }} onClick={e => e.stopPropagation()}>
+        <h3 style={{ margin: "0 0 12px", color: COLORS.text }}>确定删除这条评论？</h3>
+        <p style={{ fontSize: 14, color: COLORS.textLight, marginBottom: 16 }}>删除后将无法恢复</p>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={() => setCommentDeleteConfirm(null)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${COLORS.primary}`, background: "#fff", color: COLORS.primary, fontWeight: 600, cursor: "pointer" }}>取消</button>
+          <button onClick={doDeleteComment} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.danger, color: "#fff", fontWeight: 600, cursor: "pointer" }}>删除</button>
+        </div>
+      </div>
+    </div>}
+
+    {/* Alert modal (violations and errors shown on THIS page) */}
+    {alertModal && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setAlertModal(null)}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: 24, width: 320, maxWidth: "90vw" }} onClick={e => e.stopPropagation()}>
+        <h3 style={{ margin: "0 0 10px", color: COLORS.text, fontSize: 16 }}>{alertModal.title || "提示"}</h3>
+        <p style={{ fontSize: 14, color: COLORS.text, lineHeight: 1.5, margin: "0 0 16px" }}>{alertModal.msg}</p>
+        <button onClick={() => setAlertModal(null)} style={{ width: "100%", padding: "10px", borderRadius: 8, border: "none", background: COLORS.gradient, color: "#fff", fontWeight: 600, cursor: "pointer" }}>好的</button>
       </div>
     </div>}
   </div>;
@@ -294,6 +480,12 @@ const CommunityPage = () => {
 // ======= ACTIVITY PAGE =======
 const ActivityPage = () => {
   const { activities, joinActivity, cancelActivityEnrollment, joinedIds, userId, userName } = useStore();
+  const [joiningId, setJoiningId] = useState(null);
+  const handleJoin = async (a) => {
+    if (joiningId) return;
+    setJoiningId(a.id);
+    try { await joinActivity(a); } finally { setJoiningId(null); }
+  };
   const [filter, setFilter] = useState("all");
   const [cancelModal, setCancelModal] = useState(null);
   const filtered = activities.filter(a => a.status !== "已取消" && (filter === "all" || (filter === "group" ? a.type === "group" : a.type === "match")));
@@ -347,7 +539,7 @@ const ActivityPage = () => {
               {joined ? (
                 <button onClick={() => setCancelModal(a)} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${COLORS.danger}`, background: "#fff", color: COLORS.danger, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>取消报名</button>
               ) : (
-                <button disabled={full} onClick={() => joinActivity(a)} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: full ? "#eee" : COLORS.gradient, color: full ? "#999" : "#fff", fontWeight: 600, fontSize: 13, cursor: full ? "default" : "pointer" }}>{full ? "已满" : "报名"}</button>
+                <button disabled={full || joiningId === a.id} onClick={() => handleJoin(a)} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: full ? "#eee" : (joiningId === a.id ? "#C5C0D6" : COLORS.gradient), color: full ? "#999" : "#fff", fontWeight: 600, fontSize: 13, cursor: (full || joiningId === a.id) ? "not-allowed" : "pointer" }}>{full ? "已满" : (joiningId === a.id ? "处理中..." : "报名")}</button>
               )}
             </div>
           </div>
@@ -394,6 +586,7 @@ const TablePage = () => {
   const [selSlots, setSelSlots] = useState([]);
   const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState(null);
+  const [booking, setBooking] = useState(false);
 
   const dateKey = selDate || (dates.length > 0 ? dates[0].label : null);
   const dateKeyShort = dateKey?.split(" ")[0];
@@ -417,10 +610,15 @@ const TablePage = () => {
   const cost = Math.round(avgPrice * duration);
   const range = slotsRange(selSlots);
 
-  const doBook = () => {
+  const doBook = async () => {
+    if (booking) return;
     if (duration < 1) { setError("最低预约1小时（请至少选2个连续时段）"); return; }
-    bookTable(selSlots, dateKeyShort);
-    setShowConfirm(false); setSelSlots([]);
+    setBooking(true);
+    try { await bookTable(selSlots, dateKeyShort); } finally {
+      setBooking(false);
+      setShowConfirm(false);
+      setSelSlots([]);
+    }
   };
 
   const tryConfirm = () => {
@@ -500,7 +698,7 @@ const TablePage = () => {
       <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 24, width: 320 }}>
         <h3 style={{ margin: "0 0 12px", color: COLORS.text }}>确认预约</h3>
         <p style={{ fontSize: 14, color: COLORS.text }}>日期：<b>{dateKey}</b><br />时段：<b>{range}</b><br />时长：<b>{duration} 小时</b><br />费用：<b>¥{cost}</b></p>
-        <div style={{ display: "flex", gap: 10 }}><button onClick={() => setShowConfirm(false)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1.5px solid ${COLORS.primary}`, background: "#fff", color: COLORS.primary, fontWeight: 600, cursor: "pointer" }}>取消</button><button onClick={doBook} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.gradient, color: "#fff", fontWeight: 600, cursor: "pointer" }}>确认</button></div>
+        <div style={{ display: "flex", gap: 10 }}><button disabled={booking} onClick={() => setShowConfirm(false)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1.5px solid ${COLORS.primary}`, background: "#fff", color: COLORS.primary, fontWeight: 600, cursor: booking ? "not-allowed" : "pointer", opacity: booking ? 0.6 : 1 }}>取消</button><button disabled={booking} onClick={doBook} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: booking ? "#C5C0D6" : COLORS.gradient, color: "#fff", fontWeight: 600, cursor: booking ? "not-allowed" : "pointer" }}>{booking ? "处理中..." : "确认"}</button></div>
       </div>
     </div>}
   </div>;
@@ -508,15 +706,67 @@ const TablePage = () => {
 
 // ======= PROFILE PAGE =======
 const ProfilePage = () => {
-  const { courseCards, history, bookings, cancelBooking, userName, setUserName, userAvatar, setUserAvatar, userAvatarColor, randomizeAvatar, userId, userPhone, logout } = useStore();
+  const { courseCards, history, bookings, cancelBooking, userName, setUserName, userAvatar, setUserAvatar, userAvatarColor, randomizeAvatar, userId, userPhone, logout, isLoggedIn, setShowLogin } = useStore();
 
 
   const [editingName, setEditingName] = useState(false);
   const [tempName, setTempName] = useState(userName);
   const [cancelModal, setCancelModal] = useState(null);
   const [showAvatarMenu, setShowAvatarMenu] = useState(false);
+  // 三大记录区域默认折叠（仅显示最新 2 条）
+  const [showAllBookings, setShowAllBookings] = useState(false);
+  const [showAllCards, setShowAllCards] = useState(false);
+  const [showAllHistory, setShowAllHistory] = useState(false);
+  const PREVIEW_N = 2;
 
   const myBookings = bookings.filter(b => b.userId === userId);
+  const visibleBookings = showAllBookings ? myBookings : myBookings.slice(0, PREVIEW_N);
+  const visibleCards = showAllCards ? courseCards : courseCards.slice(0, PREVIEW_N);
+  const visibleHistory = showAllHistory ? history : history.slice(0, PREVIEW_N);
+
+  // 折叠区域底部的"查看全部 / 收起"按钮——三处统一小尺寸 + 靠右对齐
+  const FoldToggle = ({ open, total, label, onClick }) => (
+    <div style={{ textAlign: "right", marginTop: 4 }}>
+      <span
+        onClick={onClick}
+        style={{
+          display: "inline-block",
+          background: COLORS.card,
+          borderRadius: 12,
+          padding: "8px 24px",
+          fontSize: 11,
+          fontWeight: 600,
+          color: COLORS.primary,
+          cursor: "pointer",
+          border: `1px solid ${COLORS.primary}15`,
+          boxShadow: "0 1px 4px rgba(59,45,139,0.06)",
+          userSelect: "none",
+        }}
+      >
+        {open ? "▲ 收起" : `▼ 查看全部${label}（共 ${total} 条）`}
+      </span>
+    </div>
+  );
+
+  // Not-logged-in state — readable dark text on light background
+  if (!isLoggedIn) {
+    return <div style={{ padding: "80px 24px 40px 24px", textAlign: "center", minHeight: "60vh" }}>
+      <div style={{ fontSize: 72, marginBottom: 20 }}>👤</div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: "#333333", marginBottom: 12 }}>尚未登录</div>
+      <div style={{ fontSize: 14, color: "#666666", lineHeight: 1.7, marginBottom: 32 }}>
+        登录后即可查看预约记录、课程卡与交易明细
+      </div>
+      <button
+        onClick={() => setShowLogin(true)}
+        style={{ background: COLORS.primary, color: "#FFFFFF", fontSize: 15, fontWeight: 700, height: 48, borderRadius: 24, border: "none", padding: "0 56px", cursor: "pointer", boxShadow: "0 4px 14px rgba(59,45,139,0.25)" }}
+      >
+        登录 / 注册
+      </button>
+      <div style={{ fontSize: 12, color: "#999999", marginTop: 20, lineHeight: 1.6 }}>
+        未登录也可以浏览教练、课程、活动等内容
+      </div>
+    </div>;
+  }
 
   const handleAvatarUpload = (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -532,9 +782,9 @@ const ProfilePage = () => {
     <div style={{ background: COLORS.gradient, borderRadius: 16, padding: 20, color: "#fff", marginBottom: 16, textAlign: "center", position: "relative" }}>
       <div style={{ position: "relative", display: "inline-block" }}>
         <div onClick={() => setShowAvatarMenu(!showAvatarMenu)} style={{ width: 64, height: 64, borderRadius: "50%", background: userAvatar ? `url(${userAvatar}) center/cover` : userAvatarColor, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, margin: "0 auto 8px", cursor: "pointer", border: "3px solid rgba(255,255,255,0.3)", overflow: "hidden", fontWeight: 700, color: "#fff" }}>{!userAvatar && userName.charAt(0)}</div>
-        {showAvatarMenu && <div style={{ position: "absolute", top: 72, left: "50%", transform: "translateX(-50%)", background: "#fff", borderRadius: 12, boxShadow: "0 4px 20px rgba(0,0,0,0.2)", zIndex: 10, overflow: "hidden", width: 160 }}>
-          <label style={{ display: "block", padding: "12px 16px", fontSize: 13, color: COLORS.text, cursor: "pointer", borderBottom: "1px solid #f0f0f0", fontWeight: 600 }}>📷 上传图片<input type="file" accept="image/*" style={{ display: "none" }} onChange={handleAvatarUpload} /></label>
-          <div onClick={() => { randomizeAvatar(); setShowAvatarMenu(false); }} style={{ padding: "12px 16px", fontSize: 13, color: COLORS.text, cursor: "pointer", fontWeight: 600 }}>🎲 随机头像</div>
+        {showAvatarMenu && <div style={{ position: "absolute", top: 72, left: "50%", transform: "translateX(-50%)", background: "#FFFFFF", borderRadius: 12, boxShadow: "0 6px 24px rgba(0,0,0,0.2)", zIndex: 10, overflow: "hidden", width: 180 }}>
+          <label style={{ display: "block", padding: "14px 18px", fontSize: 14, color: "#1A1035", cursor: "pointer", borderBottom: "1px solid #f0f0f0", fontWeight: 600, background: "#FFFFFF" }}>📷&nbsp;上传图片<input type="file" accept="image/*" style={{ display: "none" }} onChange={handleAvatarUpload} /></label>
+          <div onClick={() => { randomizeAvatar(); setShowAvatarMenu(false); }} style={{ padding: "14px 18px", fontSize: 14, color: "#1A1035", cursor: "pointer", fontWeight: 600, background: "#FFFFFF" }}>🎲&nbsp;随机头像</div>
         </div>}
       </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
@@ -544,11 +794,11 @@ const ProfilePage = () => {
       {userPhone && <div style={{ fontSize: 13, opacity: 0.8, marginTop: 4 }}>📱 {userPhone.replace(/(\d{3})\d{4}(\d{4})/, "$1****$2")}</div>}
     </div>
 
-    {/* My bookings */}
+    {/* My bookings — 默认折叠 */}
     <h3 style={{ margin: "0 0 10px", color: COLORS.text, fontSize: 15 }}>📋 我的预约</h3>
     {myBookings.length === 0 ? <div style={{ background: COLORS.card, borderRadius: 12, padding: 20, textAlign: "center", color: COLORS.textLight, marginBottom: 16 }}>暂无预约记录</div> :
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
-        {myBookings.map(b => <div key={b.id} style={{ background: COLORS.card, borderRadius: 12, padding: 14, opacity: b.status === "已取消" ? 0.5 : 1 }}>
+        {visibleBookings.map(b => <div key={b.id} style={{ background: COLORS.card, borderRadius: 12, padding: 14, opacity: b.status === "已取消" ? 0.5 : 1 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
             <div style={{ display: "flex", gap: 6, alignItems: "center" }}><Pill color={b.type === "教练预约" ? COLORS.primary : COLORS.primaryLight}>{b.type === "教练预约" ? "🏓 私教" : "🏟️ 球台"}</Pill><Pill color={b.status === "已确认" ? COLORS.success : b.status === "已取消" ? "#999" : COLORS.warning}>{b.status}</Pill></div>
             {b.status !== "已取消" && b.status !== "已拒绝" && <button onClick={() => setCancelModal(b)} style={{ padding: "4px 12px", background: "none", border: `1px solid ${COLORS.danger}`, color: COLORS.danger, borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>取消预约</button>}
@@ -556,26 +806,31 @@ const ProfilePage = () => {
           <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.text, marginBottom: 2 }}>{b.detail}</div>
           <div style={{ fontSize: 12, color: COLORS.textLight }}>{b.payMethod} · {b.duration}h{b.status === "已取消" && b.refundAmount ? ` · 退款: ${b.payMethod === "课程卡" ? b.refundAmount + " 次" : "¥" + b.refundAmount}（原路退回）` : ""}</div>
         </div>)}
+        {myBookings.length > PREVIEW_N && <FoldToggle open={showAllBookings} total={myBookings.length} label="预约" onClick={() => setShowAllBookings(!showAllBookings)} />}
       </div>}
 
-    {/* Course cards */}
+    {/* Course cards — 默认折叠 */}
     <h3 style={{ margin: "0 0 10px", color: COLORS.text, fontSize: 15 }}>🎫 我的课程卡</h3>
     {courseCards.length === 0 ? <div style={{ background: COLORS.card, borderRadius: 12, padding: 20, textAlign: "center", color: COLORS.textLight, marginBottom: 16 }}>暂无课程卡</div> :
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
-        {courseCards.map(c => <div key={c.id} style={{ background: COLORS.card, borderRadius: 12, padding: 14 }}>
+        {visibleCards.map(c => <div key={c.id} style={{ background: COLORS.card, borderRadius: 12, padding: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontWeight: 700, color: COLORS.text }}>{c.name}</span><span style={{ fontSize: 13, color: c.remaining > 0 ? COLORS.success : "#ccc", fontWeight: 600 }}>{c.remaining > 0 ? `${c.remaining}/${c.total} 次` : "已用完"}</span></div>
           <div style={{ height: 6, background: "#eee", borderRadius: 3, overflow: "hidden" }}><div style={{ height: "100%", width: `${(c.remaining / c.total) * 100}%`, background: c.remaining > 0 ? COLORS.gradient : "#ccc", borderRadius: 3 }} /></div>
         </div>)}
+        {courseCards.length > PREVIEW_N && <FoldToggle open={showAllCards} total={courseCards.length} label="课程卡" onClick={() => setShowAllCards(!showAllCards)} />}
       </div>}
 
-    {/* History */}
+    {/* History — 默认折叠 */}
     <h3 style={{ margin: "0 0 10px", color: COLORS.text, fontSize: 15 }}>📜 交易记录</h3>
-    <div style={{ background: COLORS.card, borderRadius: 12, overflow: "hidden" }}>
-      {history.map((h, i) => <div key={i} style={{ padding: "10px 14px", borderBottom: "1px solid #f5f5f5", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div><div style={{ fontSize: 13, fontWeight: 600, color: COLORS.text }}>{h.desc}</div><div style={{ fontSize: 11, color: COLORS.textLight }}>{h.time}{h.payType === "course_card" ? " · 🎫 课程卡" : ""}</div></div>
-        <span style={{ fontWeight: 700, color: h.amount > 0 ? COLORS.success : COLORS.secondary, fontSize: 14 }}>{h.amount > 0 ? "+" : ""}{h.payType === "course_card" ? h.amount + " 次" : "¥" + Math.abs(h.amount)}</span>
-      </div>)}
-    </div>
+    {history.length === 0 ? <div style={{ background: COLORS.card, borderRadius: 12, padding: 20, textAlign: "center", color: COLORS.textLight, marginBottom: 16 }}>暂无交易记录</div> : <>
+      <div style={{ background: COLORS.card, borderRadius: 12, overflow: "hidden" }}>
+        {visibleHistory.map((h, i) => <div key={i} style={{ padding: "10px 14px", borderBottom: "1px solid #f5f5f5", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div><div style={{ fontSize: 13, fontWeight: 600, color: COLORS.text }}>{h.desc}</div><div style={{ fontSize: 11, color: COLORS.textLight }}>{h.time}{h.payType === "course_card" ? " · 🎫 课程卡" : ""}</div></div>
+          <span style={{ fontWeight: 700, color: h.amount > 0 ? COLORS.success : COLORS.secondary, fontSize: 14 }}>{h.amount > 0 ? "+" : ""}{h.payType === "course_card" ? h.amount + " 次" : "¥" + Math.abs(h.amount)}</span>
+        </div>)}
+      </div>
+      {history.length > PREVIEW_N && <FoldToggle open={showAllHistory} total={history.length} label="记录" onClick={() => setShowAllHistory(!showAllHistory)} />}
+    </>}
 
     {/* Cancel booking modal */}
     {cancelModal && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setCancelModal(null)}>
@@ -600,37 +855,117 @@ const ProfilePage = () => {
   </div>;
 };
 
-// ======= LOGIN PAGE =======
+// ======= LOGIN PAGE (rendered as overlay when showLogin = true) =======
+// 简单的两位数加/减法图形验证码——防止任意试手机号
+const makeCaptcha = () => {
+  const a = Math.floor(Math.random() * 9) + 1;
+  const b = Math.floor(Math.random() * 9) + 1;
+  // 一半概率减法，且保证非负
+  const isAdd = Math.random() < 0.5 || a < b;
+  const op = isAdd ? "+" : "-";
+  const ans = isAdd ? a + b : a - b;
+  return { question: `${a} ${op} ${b} = ?`, answer: ans };
+};
+
 const LoginPage = () => {
-  const { loginWithPhone } = useStore();
+  const { loginWithPhone, setShowLogin } = useStore();
   const [phone, setPhone] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [agreed, setAgreed] = useState(false);
+  const [captcha, setCaptcha] = useState(makeCaptcha);
+  const [captchaAns, setCaptchaAns] = useState("");
+
+  const ensureAgreed = () => {
+    if (!agreed) {
+      setError("请先阅读并同意用户服务协议和隐私政策");
+      return false;
+    }
+    return true;
+  };
+
+  const refreshCaptcha = () => { setCaptcha(makeCaptcha()); setCaptchaAns(""); };
 
   const handleLogin = async () => {
     setError("");
+    if (!ensureAgreed()) return;
     if (!/^1\d{10}$/.test(phone)) { setError("请输入正确的11位手机号"); return; }
+    if (captchaAns.trim() === "" || Number(captchaAns) !== captcha.answer) {
+      setError("验证码答案不正确，请重新计算");
+      refreshCaptcha();
+      return;
+    }
     setLoading(true);
     const result = await loginWithPhone(phone);
     setLoading(false);
-    if (!result.success) setError(result.msg || "登录失败，请重试");
+    if (result.success) {
+      setShowLogin(false);
+    } else {
+      setError(result.msg || "登录失败，请重试");
+      refreshCaptcha();
+    }
   };
 
-  return <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100vh", background: COLORS.bg, fontFamily: "-apple-system,sans-serif", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20 }}>
-    <div style={{ textAlign: "center", marginBottom: 40 }}>
-      <div style={{ fontSize: 48, marginBottom: 8 }}>🏓</div>
-      <div style={{ background: COLORS.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: 28, fontWeight: 800 }}>DC Pingpong</div>
-      <div style={{ color: COLORS.textLight, fontSize: 14, marginTop: 4 }}>你的乒乓球俱乐部</div>
-    </div>
-    <div style={{ background: "#fff", borderRadius: 16, padding: 28, width: "100%", maxWidth: 340, boxShadow: "0 4px 20px rgba(59,45,139,0.08)" }}>
-      <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.text, marginBottom: 16 }}>手机号登录</div>
-      <input type="tel" maxLength={11} placeholder="请输入11位手机号" value={phone} onChange={e => { setPhone(e.target.value.replace(/\D/g, "")); setError(""); }} onKeyDown={e => e.key === "Enter" && handleLogin()} style={{ width: "100%", fontSize: 16, padding: "12px 14px", borderRadius: 10, border: `1.5px solid ${error ? COLORS.danger : "#e8e5f5"}`, background: "#f5f3fa", outline: "none", boxSizing: "border-box", letterSpacing: 1 }} />
-      {error && <div style={{ color: COLORS.danger, fontSize: 12, marginTop: 6 }}>{error}</div>}
-      <button onClick={handleLogin} disabled={loading} style={{ width: "100%", marginTop: 16, padding: "12px", borderRadius: 10, border: "none", background: COLORS.gradient, color: "#fff", fontSize: 15, fontWeight: 700, cursor: loading ? "wait" : "pointer", opacity: loading ? 0.7 : 1 }}>{loading ? "登录中..." : "登录 / 注册"}</button>
-      <div style={{ color: COLORS.textLight, fontSize: 11, marginTop: 12, textAlign: "center" }}>未注册手机号将自动创建账号</div>
-    </div>
-    <div style={{ display: "flex", gap: 20, marginTop: 32 }}>
-      {[["🏓","预约教练"],["📚","购买课程"],["🏟️","预约球台"],["🎯","参加活动"]].map(([icon, text]) => <div key={text} style={{ textAlign: "center" }}><div style={{ fontSize: 24 }}>{icon}</div><div style={{ fontSize: 11, color: COLORS.textLight, marginTop: 2 }}>{text}</div></div>)}
+  const handleCancel = () => setShowLogin(false);
+
+  return <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: COLORS.bg, fontFamily: "-apple-system,sans-serif", overflow: "auto" }}>
+    <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20, position: "relative", boxSizing: "border-box" }}>
+      {/* Back button */}
+      <div onClick={handleCancel} style={{ position: "absolute", top: 16, left: 16, padding: "8px 16px", borderRadius: 20, background: "#fff", border: `1px solid #e8e5f5`, color: COLORS.primary, fontSize: 14, fontWeight: 600, cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+        ‹ 返回
+      </div>
+
+      <div style={{ textAlign: "center", marginBottom: 40 }}>
+        <div style={{ fontSize: 48, marginBottom: 8 }}>🏓</div>
+        <div style={{ background: COLORS.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: 28, fontWeight: 800 }}>DC Pingpong</div>
+        <div style={{ color: COLORS.textLight, fontSize: 14, marginTop: 4 }}>你的乒乓球俱乐部</div>
+      </div>
+
+      <div style={{ background: "#fff", borderRadius: 16, padding: 28, width: "100%", maxWidth: 340, boxShadow: "0 4px 20px rgba(59,45,139,0.08)", boxSizing: "border-box" }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.text, marginBottom: 16 }}>手机号登录</div>
+        <input type="tel" maxLength={11} placeholder="请输入11位手机号" value={phone} onChange={e => { setPhone(e.target.value.replace(/\D/g, "")); setError(""); }} onKeyDown={e => e.key === "Enter" && handleLogin()} style={{ width: "100%", fontSize: 16, padding: "12px 14px", borderRadius: 10, border: `1.5px solid ${error ? COLORS.danger : "#e8e5f5"}`, background: "#f5f3fa", outline: "none", boxSizing: "border-box", letterSpacing: 1 }} />
+
+        {/* 图形验证码——简单数学题，防止脚本批量试手机号 */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+          <div style={{ flex: "0 0 auto", padding: "10px 14px", borderRadius: 10, background: COLORS.primary + "12", color: COLORS.primary, fontSize: 16, fontWeight: 800, letterSpacing: 1, fontFamily: "ui-monospace, Menlo, monospace", userSelect: "none" }}>
+            {captcha.question}
+          </div>
+          <input
+            type="number"
+            inputMode="numeric"
+            placeholder="计算结果"
+            value={captchaAns}
+            onChange={e => { setCaptchaAns(e.target.value); setError(""); }}
+            onKeyDown={e => e.key === "Enter" && handleLogin()}
+            style={{ flex: 1, fontSize: 15, padding: "10px 12px", borderRadius: 10, border: `1.5px solid #e8e5f5`, background: "#f5f3fa", outline: "none", boxSizing: "border-box" }}
+          />
+          <button onClick={refreshCaptcha} title="换一题" style={{ flex: "0 0 auto", padding: "8px 10px", borderRadius: 10, border: `1px solid #e8e5f5`, background: "#fff", color: COLORS.textLight, fontSize: 14, cursor: "pointer" }}>🔄</button>
+        </div>
+
+        {error && <div style={{ color: COLORS.danger, fontSize: 12, marginTop: 6 }}>{error}</div>}
+        <button onClick={handleLogin} disabled={loading || !agreed} style={{ width: "100%", marginTop: 16, padding: "12px", borderRadius: 10, border: "none", background: COLORS.gradient, color: "#fff", fontSize: 15, fontWeight: 700, cursor: (loading || !agreed) ? "not-allowed" : "pointer", opacity: (loading || !agreed) ? 0.55 : 1 }}>{loading ? "登录中..." : "登录 / 注册"}</button>
+        <div style={{ color: COLORS.textLight, fontSize: 11, marginTop: 12, textAlign: "center" }}>未注册手机号将自动创建账号</div>
+
+        {/* Agreement checkbox — default unchecked */}
+        <div onClick={() => setAgreed(!agreed)} style={{ display: "flex", alignItems: "flex-start", marginTop: 18, padding: "4px 0", cursor: "pointer", userSelect: "none" }}>
+          <div style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${agreed ? COLORS.primary : "#bbb"}`, background: agreed ? COLORS.primary : "#fff", display: "flex", alignItems: "center", justifyContent: "center", marginRight: 8, flexShrink: 0, marginTop: 2 }}>
+            {agreed && <span style={{ color: "#fff", fontSize: 12, fontWeight: 800, lineHeight: 1 }}>✓</span>}
+          </div>
+          <div style={{ fontSize: 12, color: "#666", lineHeight: 1.5, flex: 1 }}>
+            我已阅读并同意
+            <span style={{ color: COLORS.primary, fontWeight: 600 }} onClick={e => { e.stopPropagation(); window.alert("用户服务协议：请访问小程序查看完整协议内容"); }}>《用户服务协议》</span>
+            和
+            <span style={{ color: COLORS.primary, fontWeight: 600 }} onClick={e => { e.stopPropagation(); window.alert("隐私政策：请访问小程序查看完整协议内容"); }}>《隐私政策》</span>
+          </div>
+        </div>
+
+        {/* Cancel button */}
+        <button onClick={handleCancel} style={{ width: "100%", marginTop: 14, padding: "10px", borderRadius: 10, border: "1px solid #ddd", background: "#fff", color: "#666", fontSize: 14, fontWeight: 500, cursor: "pointer" }}>取消，返回首页</button>
+      </div>
+
+      <div style={{ display: "flex", gap: 20, marginTop: 32 }}>
+        {[["🏓","预约教练"],["📚","购买课程"],["🏟️","预约球台"],["🎯","参加活动"]].map(([icon, text]) => <div key={text} style={{ textAlign: "center" }}><div style={{ fontSize: 24 }}>{icon}</div><div style={{ fontSize: 11, color: COLORS.textLight, marginTop: 2 }}>{text}</div></div>)}
+      </div>
     </div>
   </div>;
 };
@@ -645,8 +980,12 @@ const TABS = [
 export default function App() {
   const [tab, setTab] = useState("coach");
   const store = useStore();
-
-  if (!store.isLoggedIn) return <LoginPage />;
+  const { unreadCommunity, markCommunityVisited } = store;
+  // 切到"社区" tab 时把 last_community_visit 刷成当前时间，红点清零
+  const onTabClick = (id) => {
+    setTab(id);
+    if (id === "community") markCommunityVisited && markCommunityVisited();
+  };
 
   if (store.loading) return <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100vh", background: COLORS.bg, fontFamily: "-apple-system,sans-serif", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column" }}>
     <div style={{ background: COLORS.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: 24, fontWeight: 800, marginBottom: 8 }}>DC Pingpong 🏓</div>
@@ -666,12 +1005,36 @@ export default function App() {
       {tab === "profile" && <ProfilePage />}
     </div>
     <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 430, background: "#fff", display: "flex", borderTop: "1px solid #eee", boxShadow: "0 -2px 10px rgba(0,0,0,0.05)" }}>
-      {TABS.map(t => <div key={t.id} onClick={() => setTab(t.id)} style={{ flex: 1, padding: "8px 0", textAlign: "center", cursor: "pointer", transition: "all .15s" }}>
-        <div style={{ fontSize: 20 }}>{t.icon}</div>
+      {TABS.map(t => <div key={t.id} onClick={() => onTabClick(t.id)} style={{ flex: 1, padding: "8px 0", textAlign: "center", cursor: "pointer", transition: "all .15s", position: "relative" }}>
+        <div style={{ fontSize: 20, position: "relative", display: "inline-block" }}>
+          {t.icon}
+          {t.id === "community" && unreadCommunity > 0 && (
+            <span style={{
+              position: "absolute",
+              top: -4,
+              right: -10,
+              minWidth: 16,
+              height: 16,
+              padding: "0 4px",
+              borderRadius: 10,
+              background: COLORS.secondary,
+              color: "#fff",
+              fontSize: 10,
+              fontWeight: 700,
+              lineHeight: "16px",
+              textAlign: "center",
+              boxShadow: "0 1px 3px rgba(255,64,129,0.4)",
+              boxSizing: "border-box",
+            }}>{unreadCommunity > 99 ? "99+" : unreadCommunity}</span>
+          )}
+        </div>
         <div style={{ fontSize: 11, fontWeight: tab === t.id ? 700 : 400, color: tab === t.id ? COLORS.primary : COLORS.textLight }}>{t.label}</div>
         {tab === t.id && <div style={{ width: 20, height: 3, background: COLORS.secondary, borderRadius: 2, margin: "2px auto 0" }} />}
       </div>)}
     </div>
+
+    {/* Login overlay — shown when store.showLogin = true */}
+    {store.showLogin && <LoginPage />}
     <ResultModal modal={store.resultModal} onClose={() => store.setResultModal(null)} />
   </div>;
 }

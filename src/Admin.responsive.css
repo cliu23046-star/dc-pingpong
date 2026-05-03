@@ -1,0 +1,292 @@
+/* Admin 后台响应式适配
+ * 桌面端（>= 768px）保持现有布局，仅作为 fallback。
+ * 移动端（< 768px）：sidebar 改为顶部汉堡菜单、表格改为卡片、弹窗全宽、加大触摸区。
+ *
+ * 选择器作用域全部限定在 .admin-root 内，避免影响 dc-pingpong 其它页面。
+ */
+
+/* ========== 公共：滚动外壳 ========== */
+.admin-root {
+    box-sizing: border-box;
+}
+
+/* ========== 桌面端：默认布局（>= 768px） ========== */
+.admin-hamburger {
+    display: none;
+}
+
+.admin-sidebar-mask {
+    display: none;
+}
+
+/* ========== 移动端（< 768px） ========== */
+@media (max-width: 767px) {
+    /* 顶部条 + 主区域上下排列 */
+    .admin-root {
+        flex-direction: column !important;
+    }
+
+    /* sidebar：默认隐藏在屏幕外，左侧抽屉式弹出 */
+    .admin-sidebar {
+        position: fixed !important;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: 78vw !important;
+        max-width: 320px;
+        z-index: 1000;
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.2);
+    }
+
+    .admin-sidebar.admin-sidebar-open {
+        transform: translateX(0);
+    }
+
+    /* sidebar 字号略大 */
+    .admin-sidebar .admin-nav-item {
+        font-size: 16px !important;
+        padding: 14px 20px !important;
+        min-height: 44px;
+        box-sizing: border-box;
+    }
+
+    /* 抽屉外的遮罩 */
+    .admin-sidebar-mask {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        z-index: 999;
+    }
+
+    /* 顶部 bar：汉堡 + 标题 */
+    .admin-topbar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 14px;
+        background: #1A1035;
+        color: #fff;
+        position: sticky;
+        top: 0;
+        z-index: 50;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .admin-hamburger {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        background: transparent;
+        border: none;
+        color: #fff;
+        font-size: 24px;
+        cursor: pointer;
+        padding: 0;
+    }
+
+    .admin-topbar-title {
+        font-size: 16px;
+        font-weight: 700;
+        flex: 1;
+    }
+
+    .admin-topbar-refresh {
+        background: rgba(255, 255, 255, 0.15);
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        padding: 8px 14px;
+        font-size: 13px;
+        font-weight: 600;
+        min-height: 36px;
+        cursor: pointer;
+    }
+
+    /* 主内容区域：全宽 */
+    .admin-main {
+        flex: 1;
+        background: #F0EDF6;
+        overflow: auto;
+    }
+
+    .admin-content {
+        padding: 16px 14px !important;
+        max-width: none !important;
+    }
+
+    /* 标题字号略小，避免占两行 */
+    .admin-content h2 {
+        font-size: 18px !important;
+        margin-bottom: 12px !important;
+    }
+
+    /* === 表格 → 卡片式列表 === */
+    .admin-content table {
+        min-width: 0 !important;
+        width: 100% !important;
+        display: block;
+    }
+
+    .admin-content thead {
+        display: none;
+    }
+
+    .admin-content tbody {
+        display: block;
+    }
+
+    .admin-content tbody tr {
+        display: block;
+        background: #fff;
+        border-radius: 12px;
+        padding: 12px 14px;
+        margin-bottom: 10px;
+        box-shadow: 0 2px 8px rgba(59, 45, 139, 0.06);
+        border: 1px solid rgba(59, 45, 139, 0.08);
+    }
+
+    .admin-content tbody td {
+        display: block;
+        border: none !important;
+        padding: 6px 0 !important;
+        font-size: 14px !important;
+        line-height: 1.6;
+        white-space: normal !important;
+    }
+
+    /* 单元格里如果是按钮组，改成水平排布并加间距 */
+    .admin-content tbody td > div[style*="display: flex"] {
+        flex-wrap: wrap;
+        gap: 8px !important;
+    }
+
+    /* 表格容器去掉横向滚动 */
+    .admin-content > div[style*="overflow"] {
+        overflow: visible !important;
+    }
+
+    /* === 按钮：最小触摸 44x44px === */
+    .admin-content button,
+    .admin-modal-card button {
+        min-height: 44px;
+        font-size: 14px !important;
+        padding: 10px 16px !important;
+    }
+
+    /* small 按钮稍微紧凑些（仍 ≥ 36px） */
+    .admin-content button[class*="small"],
+    .admin-content button[data-small] {
+        min-height: 36px;
+    }
+
+    /* === 输入控件 === */
+    .admin-content input,
+    .admin-content select,
+    .admin-content textarea,
+    .admin-modal-card input,
+    .admin-modal-card select,
+    .admin-modal-card textarea {
+        min-height: 44px;
+        font-size: 16px !important;  /* 防 iOS 自动缩放 */
+        box-sizing: border-box;
+    }
+
+    .admin-content textarea,
+    .admin-modal-card textarea {
+        min-height: 96px;
+    }
+
+    /* === 弹窗：95% 宽度，几乎全屏 === */
+    .admin-modal-card {
+        width: 95vw !important;
+        max-width: 95vw !important;
+        max-height: 90vh !important;
+        padding: 18px !important;
+        border-radius: 14px !important;
+    }
+
+    .admin-modal-card h3 {
+        font-size: 17px !important;
+    }
+
+    /* 顶部 tab 横向 scroll */
+    .admin-content > div[style*="display: flex"] {
+        flex-wrap: wrap;
+    }
+
+    /* Tabs / pill chip 按钮加大 */
+    .admin-content button[style*="border-radius: 20px"],
+    .admin-content button[style*="borderRadius: 20"] {
+        min-height: 36px;
+    }
+
+    /* === 页面顶部"标题 + 操作按钮组"垂直堆叠 === */
+    /* 这种行结构：<div flex space-between><h2>...</h2><div flex>buttons</div></div> */
+    .admin-content > div:has(> h2) {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 12px;
+    }
+
+    /* 标题行内嵌套的按钮组 → 垂直、按钮全宽 */
+    .admin-content > div:has(> h2) > div[style*="display: flex"] {
+        flex-direction: column !important;
+        width: 100%;
+        gap: 8px !important;
+    }
+
+    .admin-content > div:has(> h2) > div[style*="display: flex"] > button {
+        width: 100%;
+    }
+
+    /* === DateRangePicker：开始/结束日期 → 上下排列 === */
+    .admin-content div[style*="display: flex"][style*="gap: 12"] {
+        flex-wrap: wrap;
+    }
+
+    /* === Field（label + 输入）内的 input/select 撑满 === */
+    .admin-content label + select,
+    .admin-content label + input,
+    .admin-modal-card label + select,
+    .admin-modal-card label + input {
+        width: 100% !important;
+        box-sizing: border-box;
+    }
+
+    /* === 弹窗里 flex 行（gap 8/10/12）允许换行 === */
+    .admin-modal-card div[style*="display: flex"][style*="gap"] {
+        flex-wrap: wrap;
+    }
+
+    /* === 弹窗底部按钮组：等宽全宽 === */
+    .admin-modal-card div[style*="display: flex"][style*="gap"] > button {
+        flex: 1 1 auto;
+        min-width: 100px;
+    }
+
+    /* === 卡片(tr)里如果有 img + 文字组合，垂直排（避免文字挤压） === */
+    .admin-content tbody tr td > div[style*="display: flex"] {
+        align-items: flex-start !important;
+    }
+
+    /* === 表格上方的过滤栏 / 工具行：背景色卡片 padding 缩小 === */
+    .admin-content > div[style*="background"][style*="border-radius"] {
+        padding: 12px !important;
+    }
+}
+
+/* === 桌面端 fallback：当 JS 没加上 admin-sidebar-open 时（默认）也显示 === */
+@media (min-width: 768px) {
+    .admin-sidebar {
+        position: relative !important;
+        transform: none !important;
+    }
+    .admin-topbar {
+        display: none !important;
+    }
+}

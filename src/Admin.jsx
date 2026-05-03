@@ -1,5 +1,35 @@
 import { useState, useMemo } from "react";
+import * as XLSX from "xlsx";
 import { useStore } from "./store.jsx";
+import "./Admin.responsive.css";
+
+// Parse pasted text into [{phone, nickname}] rows.
+// Each line: "手机号,昵称" / "手机号 昵称" / "手机号<TAB>昵称" / 单独手机号
+const parsePastedText = (text) => {
+    if (!text) return [];
+    return String(text).split(/\r?\n/).map(line => {
+        const trimmed = line.trim();
+        if (!trimmed) return null;
+        // split on comma, tab or whitespace (first separator wins)
+        const parts = trimmed.split(/[,\t\s]+/).filter(Boolean);
+        return { phone: parts[0] || "", nickname: parts.slice(1).join(" ") || "" };
+    }).filter(Boolean);
+};
+
+// Parse uploaded File (CSV or XLSX) into [{phone, nickname}] rows.
+const parseSheetFile = async (file) => {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    if (!sheet) return [];
+    const arr = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+    // 跳过明显是表头的第一行（包含"手机"/"phone"/"昵称"/"nickname"等关键字）
+    const looksLikeHeader = (row) => row && row.length > 0 && /手机|phone|昵称|name|nickname/i.test(String(row[0] || "") + String(row[1] || ""));
+    const rows = arr.length > 0 && looksLikeHeader(arr[0]) ? arr.slice(1) : arr;
+    return rows
+        .filter(r => r && (r[0] || r[1]))
+        .map(r => ({ phone: String(r[0] || "").trim(), nickname: String(r[1] || "").trim() }));
+};
 
 const C = {
     primary: "#3B2D8B", primaryLight: "#5A4BAF", secondary: "#FF4081", accent: "#FF80AB",
@@ -18,7 +48,7 @@ const st = {
 
 const PBtn = ({ children, onClick, danger, secondary, small, disabled }) => <button disabled={disabled} onClick={onClick} style={{ ...st.btn, background: disabled ? "#ccc" : danger ? C.danger : secondary ? "transparent" : C.gradient, color: secondary ? C.primary : "#fff", border: secondary ? `1.5px solid ${C.primary}` : "none", padding: small ? "5px 12px" : "8px 18px", fontSize: small ? 12 : 13, opacity: disabled ? 0.6 : 1 }}>{children}</button>;
 
-const Modal = ({ show, onClose, title, children, wide }) => { if (!show) return null; return <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}><div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 24, width: wide ? 680 : 440, maxHeight: "85vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><h3 style={{ margin: 0, color: C.text, fontSize: 18 }}>{title}</h3><span onClick={onClose} style={{ fontSize: 22, cursor: "pointer", color: C.textLight }}>✕</span></div>{children}</div></div>; };
+const Modal = ({ show, onClose, title, children, wide }) => { if (!show) return null; return <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}><div className="admin-modal-card" onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 24, width: wide ? 680 : 440, maxHeight: "85vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><h3 style={{ margin: 0, color: C.text, fontSize: 18 }}>{title}</h3><span onClick={onClose} style={{ fontSize: 22, cursor: "pointer", color: C.textLight, minWidth: 32, minHeight: 32, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>✕</span></div>{children}</div></div>; };
 
 const Field = ({ label, children }) => <div style={{ marginBottom: 14 }}><label style={{ display: "block", fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 4 }}>{label}</label>{children}</div>;
 
@@ -351,37 +381,90 @@ const CourseMgmt = () => {
     const { courses, adminSaveCourse, adminDeleteCourse } = useStore();
     const [modal, setModal] = useState(null);
     const [saving, setSaving] = useState(false);
-    const empty = { title: "", desc: "", lessons: 0, price: 0, enrolled: 0, status: "上架", coverImage: null, emoji: "📖", outline: [] };
-    const save = async () => { setSaving(true); try { await adminSaveCourse(modal); } catch (e) { console.error("[CourseMgmt] save error:", e); } setSaving(false); setModal(null); };
-    const del = async (id) => { await adminDeleteCourse(id); };
+    const [newHighlight, setNewHighlight] = useState("");
+    const [delResult, setDelResult] = useState(null); // { ok, msg }
+    const empty = { title: "", desc: "", lessons: 0, price: 0, enrolled: 0, status: "上架", coverImage: null, coverDetailUrl: null, emoji: "📖", outline: [], descriptionDetail: "", highlights: [], rules: "" };
+    const save = async () => { setSaving(true); try { await adminSaveCourse(modal); } catch (e) { console.error("[CourseMgmt] save error:", e); } setSaving(false); setModal(null); setNewHighlight(""); };
+    const del = async (id) => {
+        if (!window.confirm("确定删除该课程？\n（如有用户已购买课程卡，将自动改为软删除/下架）")) return;
+        const res = await adminDeleteCourse(id);
+        if (res && !res.ok) setDelResult({ ok: false, msg: res.msg || "删除失败" });
+        else if (res && res.soft) setDelResult({ ok: true, msg: res.msg || "已改为下架" });
+    };
+    // 在管理端默认隐藏 archived（软删除）课程，加 toggle 看历史
+    const [showArchived, setShowArchived] = useState(false);
+    const visibleCourses = showArchived ? courses : courses.filter(c => c.status !== 'archived');
+
+    const addHighlight = () => {
+        const v = (newHighlight || "").trim();
+        if (!v) return;
+        setModal(m => ({ ...m, highlights: [...(m.highlights || []), v] }));
+        setNewHighlight("");
+    };
+    const removeHighlight = (idx) => setModal(m => ({ ...m, highlights: (m.highlights || []).filter((_, i) => i !== idx) }));
 
     return <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-            <h2 style={{ margin: 0, color: C.text }}>📚 课程管理</h2><PBtn onClick={() => setModal({ ...empty })}>+ 添加课程</PBtn>
+            <h2 style={{ margin: 0, color: C.text }}>📚 课程管理</h2>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <label style={{ fontSize: 12, color: C.textLight, display: "flex", alignItems: "center", gap: 4 }}>
+                    <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} />显示已归档
+                </label>
+                <PBtn onClick={() => setModal({ ...empty })}>+ 添加课程</PBtn>
+            </div>
         </div>
         <div style={{ background: C.card, borderRadius: 12, overflow: "auto", boxShadow: "0 2px 12px rgba(59,45,139,0.06)" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr><th style={st.th}>课程</th><th style={st.th}>课时</th><th style={st.th}>价格</th><th style={st.th}>已购</th><th style={st.th}>状态</th><th style={st.th}>操作</th></tr></thead>
-                <tbody>{courses.map(c => <tr key={c.id}>
+                <tbody>{visibleCourses.map(c => <tr key={c.id}>
                     <td style={st.td}><div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         {c.coverImage ? <img src={c.coverImage} style={{ width: 48, height: 36, borderRadius: 6, objectFit: "cover" }} /> : <span style={{ fontSize: 24 }}>{c.emoji}</span>}
                         <div><span style={{ fontWeight: 600 }}>{c.title}</span><div style={{ fontSize: 12, color: C.textLight }}>{c.desc}</div></div></div></td>
                     <td style={st.td}>{c.lessons}</td>
                     <td style={st.td}><span style={{ color: C.secondary, fontWeight: 700 }}>¥{c.price}</span></td>
                     <td style={st.td}>{c.enrolled}人</td>
-                    <td style={st.td}><span style={st.badge(c.status === "上架" ? C.success : C.warning)}>{c.status}</span></td>
+                    <td style={st.td}><span style={st.badge(c.status === "上架" ? C.success : (c.status === 'archived' ? C.textLight : C.warning))}>{c.status === 'archived' ? '已归档' : c.status}</span></td>
                     <td style={st.td}><div style={{ display: "flex", gap: 6 }}><PBtn small secondary onClick={() => setModal({ ...c })}>编辑</PBtn><PBtn small danger onClick={() => del(c.id)}>删除</PBtn></div></td>
                 </tr>)}</tbody>
             </table>
         </div>
-        <Modal show={!!modal} onClose={() => setModal(null)} title={modal?.id ? "编辑课程" : "添加课程"}>
-            <Field label="封面图"><ImageUpload value={modal?.coverImage} onChange={v => setModal(m => ({ ...m, coverImage: v }))} /></Field>
+        <Modal show={!!modal} onClose={() => { setModal(null); setNewHighlight(""); }} title={modal?.id ? "编辑课程" : "添加课程"} wide>
+            <Field label="列表封面图"><ImageUpload value={modal?.coverImage} onChange={v => setModal(m => ({ ...m, coverImage: v }))} /></Field>
+            <Field label="详情页封面图（可选，留空将使用列表封面图）"><ImageUpload value={modal?.coverDetailUrl} onChange={v => setModal(m => ({ ...m, coverDetailUrl: v }))} /></Field>
             <Field label="课程名"><input style={st.input} value={modal?.title || ""} onChange={e => setModal(m => ({ ...m, title: e.target.value }))} /></Field>
-            <Field label="描述"><input style={st.input} value={modal?.desc || ""} onChange={e => setModal(m => ({ ...m, desc: e.target.value }))} /></Field>
-            <div style={{ display: "flex", gap: 12 }}><div style={{ flex: 1 }}><Field label="课时数"><input type="number" style={st.input} value={modal?.lessons || ""} onChange={e => setModal(m => ({ ...m, lessons: Number(e.target.value) }))} /></Field></div>
-                <div style={{ flex: 1 }}><Field label="价格"><input type="number" style={st.input} value={modal?.price || ""} onChange={e => setModal(m => ({ ...m, price: Number(e.target.value) }))} /></Field></div></div>
-            <Field label="状态"><select style={st.input} value={modal?.status || "上架"} onChange={e => setModal(m => ({ ...m, status: e.target.value }))}><option value="上架">上架</option><option value="下架">下架</option></select></Field>
-            <div style={{ display: "flex", gap: 10, marginTop: 8 }}><PBtn secondary onClick={() => setModal(null)}>取消</PBtn><PBtn onClick={save} disabled={saving}>{saving ? "保存中..." : "保存"}</PBtn></div>
+            <Field label="简短描述（列表展示）"><input style={st.input} value={modal?.desc || ""} onChange={e => setModal(m => ({ ...m, desc: e.target.value }))} /></Field>
+            <Field label="课程详细描述（详情页展示，支持换行）">
+                <textarea style={{ ...st.input, minHeight: 96, resize: "vertical" }} value={modal?.descriptionDetail || ""} onChange={e => setModal(m => ({ ...m, descriptionDetail: e.target.value }))} />
+            </Field>
+            <Field label="课程亮点（如「比单节课更划算」「可选择任意教练」）">
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+                    {(modal?.highlights || []).map((h, i) => (
+                        <span key={i} style={{ background: C.primary + "12", color: C.primary, padding: "4px 10px", borderRadius: 16, fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            {h}
+                            <span onClick={() => removeHighlight(i)} style={{ cursor: "pointer", color: C.danger, fontWeight: 700 }}>×</span>
+                        </span>
+                    ))}
+                    {(modal?.highlights || []).length === 0 && <span style={{ fontSize: 12, color: C.textLight }}>暂无亮点，添加一个吧</span>}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                    <input style={{ ...st.input, flex: 1 }} placeholder="输入亮点后点击添加" value={newHighlight} onChange={e => setNewHighlight(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addHighlight(); } }} />
+                    <PBtn small onClick={addHighlight}>添加</PBtn>
+                </div>
+            </Field>
+            <Field label="课程卡使用规则（详情页展示，支持换行）">
+                <textarea style={{ ...st.input, minHeight: 96, resize: "vertical" }} placeholder={"• 课程卡共 N 次课时\n• 每次预约消耗 1 课时\n• 课程卡支持退款，已消耗课时按单节课价格结算"} value={modal?.rules || ""} onChange={e => setModal(m => ({ ...m, rules: e.target.value }))} />
+            </Field>
+            <div style={{ display: "flex", gap: 12 }}>
+                <div style={{ flex: 1 }}><Field label="课时数"><input type="number" min="0" style={st.input} value={modal?.lessons ?? ""} onChange={e => setModal(m => ({ ...m, lessons: Number(e.target.value) }))} /></Field></div>
+                <div style={{ flex: 1 }}><Field label="价格"><input type="number" min="0" style={st.input} value={modal?.price ?? ""} onChange={e => setModal(m => ({ ...m, price: Number(e.target.value) }))} /></Field></div>
+                <div style={{ flex: 1 }}><Field label="已购人数"><input type="number" min="0" style={st.input} value={modal?.enrolled ?? 0} onChange={e => setModal(m => ({ ...m, enrolled: Math.max(0, Number(e.target.value) || 0) }))} /></Field></div>
+            </div>
+            <Field label="状态"><select style={st.input} value={modal?.status || "上架"} onChange={e => setModal(m => ({ ...m, status: e.target.value }))}><option value="上架">上架</option><option value="下架">下架</option><option value="archived">已归档</option></select></Field>
+            <div style={{ display: "flex", gap: 10, marginTop: 8 }}><PBtn secondary onClick={() => { setModal(null); setNewHighlight(""); }}>取消</PBtn><PBtn onClick={save} disabled={saving}>{saving ? "保存中..." : "保存"}</PBtn></div>
+        </Modal>
+        <Modal show={!!delResult} onClose={() => setDelResult(null)} title={delResult?.ok ? "已处理" : "删除失败"}>
+            <div style={{ fontSize: 14, color: C.text, lineHeight: 1.5, margin: "0 0 16px" }}>{delResult?.msg}</div>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}><PBtn onClick={() => setDelResult(null)}>好的</PBtn></div>
         </Modal>
     </div>;
 };
@@ -824,6 +907,27 @@ const BookingMgmt = () => {
     const [proxyCards, setProxyCards] = useState([]);
     const [proxyMsg, setProxyMsg] = useState(null);
     const [proxySaving, setProxySaving] = useState(false);
+    // 拒绝预约弹窗（管理员选退款模式 + 原因）
+    const [rejectModal, setRejectModal] = useState(null); // { booking, mode: 'full'|'rule'|'none', reason }
+    const [rejecting, setRejecting] = useState(false);
+    const [rejectResult, setRejectResult] = useState(null); // { msg }
+    const openReject = (b) => setRejectModal({ booking: b, mode: 'full', reason: '' });
+    const submitReject = async () => {
+        if (!rejectModal || rejecting) return;
+        setRejecting(true);
+        try {
+            const r = await rejectBooking(rejectModal.booking.id, rejectModal.mode, rejectModal.reason);
+            const isCard = rejectModal.booking.payMethod === '课程卡';
+            const refundLabel = r?.refundAmt > 0
+                ? (isCard ? `退还 ${r.refundAmt} 次课程卡` : `退款 ¥${r.refundAmt}`)
+                : '不退款';
+            setRejectResult({ msg: `已拒绝预约（${refundLabel}）` });
+        } catch (e) {
+            setRejectResult({ msg: '操作失败：' + (e.message || e) });
+        }
+        setRejecting(false);
+        setRejectModal(null);
+    };
 
     const typeTabs = [
         { id: "all", label: "全部", count: bookings.length },
@@ -935,7 +1039,7 @@ const BookingMgmt = () => {
                         <td style={st.td}>{b.duration}h</td>
                         <td style={st.td}>{b.payMethod}</td>
                         <td style={st.td}><span style={{ color: C.secondary, fontWeight: 600 }}>{b.payMethod === "微信支付" ? `¥${b.cost}` : `${b.cardDeduct} 次`}</span></td>
-                        <td style={st.td}>{b.status === "待确认" ? <div style={{ display: "flex", gap: 4 }}><PBtn small onClick={() => approveBooking(b.id)}>✓</PBtn><PBtn small danger onClick={() => rejectBooking(b.id)}>✗</PBtn></div> : "-"}</td>
+                        <td style={st.td}>{b.status === "待确认" ? <div style={{ display: "flex", gap: 4 }}><PBtn small onClick={() => approveBooking(b.id)}>✓</PBtn><PBtn small danger onClick={() => openReject(b)}>✗</PBtn></div> : "-"}</td>
                     </tr>)}</tbody>
                 </table>
             </div>}
@@ -1011,12 +1115,50 @@ const BookingMgmt = () => {
             <p style={{ fontSize: 14, color: proxyMsg?.ok ? C.success : C.danger }}>{proxyMsg?.msg}</p>
             <PBtn onClick={() => setProxyMsg(null)}>确定</PBtn>
         </Modal>
+
+        {/* Reject booking modal — admin chooses refund mode + reason */}
+        <Modal show={!!rejectModal} onClose={() => !rejecting && setRejectModal(null)} title="拒绝预约">
+            {rejectModal && <div>
+                <div style={{ background: C.bg, borderRadius: 10, padding: 12, marginBottom: 14, fontSize: 13, color: C.text, lineHeight: 1.7 }}>
+                    <div><b>预约：</b>{rejectModal.booking.detail}</div>
+                    <div><b>用户：</b>{bookingUserLabel(rejectModal.booking)}</div>
+                    <div><b>支付方式：</b>{rejectModal.booking.payMethod}{rejectModal.booking.payMethod === "微信支付" ? `（¥${rejectModal.booking.cost}）` : `（${rejectModal.booking.cardDeduct || rejectModal.booking.duration} 次）`}</div>
+                </div>
+                <Field label="退款方式">
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {[
+                            { id: 'full', label: '✅ 全额退款', hint: '退还全部费用（不论 24h 规则）' },
+                            { id: 'rule', label: '⚖️ 按规则退款', hint: '24h 外全额、24h 内扣 50%' },
+                            { id: 'none', label: '🚫 不退款', hint: '特殊情况（用户违规等）' },
+                        ].map(opt => (
+                            <label key={opt.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", border: `1.5px solid ${rejectModal.mode === opt.id ? C.primary : C.primary + "20"}`, borderRadius: 10, cursor: "pointer", background: rejectModal.mode === opt.id ? C.primary + "08" : "#fff" }}>
+                                <input type="radio" name="refund-mode" value={opt.id} checked={rejectModal.mode === opt.id} onChange={() => setRejectModal(m => ({ ...m, mode: opt.id }))} style={{ marginTop: 3 }} />
+                                <div><div style={{ fontWeight: 600, color: C.text }}>{opt.label}</div><div style={{ fontSize: 12, color: C.textLight }}>{opt.hint}</div></div>
+                            </label>
+                        ))}
+                    </div>
+                </Field>
+                <Field label="拒绝原因（可选，将记录到交易备注）">
+                    <input style={st.input} placeholder="例如：教练临时调整时间" value={rejectModal.reason} onChange={e => setRejectModal(m => ({ ...m, reason: e.target.value }))} />
+                </Field>
+                <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+                    <PBtn secondary onClick={() => setRejectModal(null)} disabled={rejecting}>取消</PBtn>
+                    <PBtn danger onClick={submitReject} disabled={rejecting}>{rejecting ? "处理中..." : "确认拒绝"}</PBtn>
+                </div>
+            </div>}
+        </Modal>
+
+        {/* Reject result */}
+        <Modal show={!!rejectResult} onClose={() => setRejectResult(null)} title="✅ 已处理">
+            <p style={{ fontSize: 14, color: C.text }}>{rejectResult?.msg}</p>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}><PBtn onClick={() => setRejectResult(null)}>好的</PBtn></div>
+        </Modal>
     </div>;
 };
 
 // ======= MEMBER MANAGEMENT =======
 const MemberMgmt = () => {
-    const { allUsers, courses, adminUpdateUser, adminCreateCard, adminUpdateCardRemaining, adminGetUserCards, adminGetUserTransactions, adminCreateUser, adminDeleteUser, adminUpdateUserPhone, refetchUsers } = useStore();
+    const { allUsers, courses, adminUpdateUser, adminCreateCard, adminUpdateCardRemaining, adminGetUserCards, adminGetUserTransactions, adminCreateUser, adminBulkCreateUsers, adminDeleteUser, adminUpdateUserPhone, refetchUsers } = useStore();
     const [addModal, setAddModal] = useState(null);
     const [selectedUser, setSelectedUser] = useState(null);
     const [detailTab, setDetailTab] = useState("basic");
@@ -1027,6 +1169,13 @@ const MemberMgmt = () => {
     const [deleteConfirm, setDeleteConfirm] = useState(null);
     const [editing, setEditing] = useState(null);
     const [newCard, setNewCard] = useState(null);
+    // 批量导入状态：rows 是预览列表（含状态），text 是粘贴框，importing 防重复点，result 是导入结果汇总
+    const [bulkOpen, setBulkOpen] = useState(false);
+    const [bulkText, setBulkText] = useState("");
+    const [bulkRows, setBulkRows] = useState([]);
+    const [bulkImporting, setBulkImporting] = useState(false);
+    const [bulkResult, setBulkResult] = useState(null);
+    const [bulkFileName, setBulkFileName] = useState("");
 
     const fmtDate = (d) => { if (!d) return "-"; const dt = new Date(d); return `${dt.getMonth() + 1}/${dt.getDate()} ${dt.getHours()}:${String(dt.getMinutes()).padStart(2, "0")}`; };
     const fmtDateFull = (d) => { if (!d) return "-"; const dt = new Date(d); return `${dt.getFullYear()}/${dt.getMonth() + 1}/${dt.getDate()}`; };
@@ -1065,6 +1214,65 @@ const MemberMgmt = () => {
         await adminDeleteUser(deleteConfirm.id);
         setDeleteConfirm(null);
         if (selectedUser?.id === deleteConfirm.id) setSelectedUser(null);
+    };
+
+    // ---- Bulk import helpers ----
+    // 计算每行的状态：new / invalid / duplicate（DB 已存在）/ duplicate-batch（同批次重复）
+    const buildBulkPreview = (rawRows) => {
+        const existingPhones = new Set(allUsers.map(u => u.phone).filter(Boolean));
+        const seen = new Set();
+        return rawRows.map(r => {
+            const phone = String(r.phone || "").replace(/\D/g, "");
+            const nickname = (r.nickname || "").trim();
+            if (!/^1\d{10}$/.test(phone)) return { phone: r.phone || "", nickname, status: "invalid", msg: "手机号格式错误" };
+            if (existingPhones.has(phone)) return { phone, nickname, status: "duplicate", msg: "已存在" };
+            if (seen.has(phone)) return { phone, nickname, status: "duplicate-batch", msg: "同批次重复" };
+            seen.add(phone);
+            return { phone, nickname: nickname || "球友", status: "new", msg: "" };
+        });
+    };
+
+    const openBulk = () => { setBulkOpen(true); setBulkText(""); setBulkRows([]); setBulkResult(null); setBulkFileName(""); };
+    const closeBulk = () => { setBulkOpen(false); setBulkResult(null); };
+
+    const onBulkText = (val) => {
+        setBulkText(val);
+        setBulkFileName("");
+        setBulkRows(buildBulkPreview(parsePastedText(val)));
+    };
+
+    const onBulkFile = async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = ""; // 允许重选同一文件
+        if (!file) return;
+        try {
+            const rows = await parseSheetFile(file);
+            setBulkFileName(file.name);
+            setBulkText("");
+            setBulkRows(buildBulkPreview(rows));
+        } catch (err) {
+            alert(`解析文件失败：${err.message || err}`);
+        }
+    };
+
+    const doBulkImport = async () => {
+        const toImport = bulkRows.filter(r => r.status === "new").map(r => ({ phone: r.phone, nickname: r.nickname }));
+        if (toImport.length === 0) { alert("没有可导入的有效新用户"); return; }
+        setBulkImporting(true);
+        try {
+            const res = await adminBulkCreateUsers(toImport);
+            // 合并：成功新增 + 预览中标记为已存在/格式错误的也都算入结果
+            const skippedFromPreview = bulkRows.filter(r => r.status === "duplicate" || r.status === "duplicate-batch").length;
+            const failedFromPreview = bulkRows.filter(r => r.status === "invalid").length;
+            setBulkResult({
+                added: res.added,
+                skipped: res.skipped + skippedFromPreview,
+                failed: res.failed + failedFromPreview,
+            });
+        } catch (err) {
+            alert(`导入失败：${err.message || err}`);
+        }
+        setBulkImporting(false);
     };
 
     const startEdit = () => setEditing({ nickname: selectedUser.nickname, phone: selectedUser.phone || "" });
@@ -1155,8 +1363,14 @@ const MemberMgmt = () => {
 
     return <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <h2 style={{ margin: 0, color: C.text }}>👥 会员管理</h2>
-            <PBtn onClick={() => setAddModal({ phone: "", nickname: "" })}>添加会员</PBtn>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+                <h2 style={{ margin: 0, color: C.text }}>👥 会员管理</h2>
+                <span style={{ fontSize: 14, color: C.textLight }}>共 <b style={{ color: C.primary }}>{allUsers.length}</b> 位会员{search && filteredUsers.length !== allUsers.length && <>（当前显示 <b style={{ color: C.primary }}>{filteredUsers.length}</b> 位）</>}</span>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+                <PBtn secondary onClick={openBulk}>📋 批量添加学员</PBtn>
+                <PBtn onClick={() => setAddModal({ phone: "", nickname: "" })}>添加会员</PBtn>
+            </div>
         </div>
         <input style={{ ...st.input, marginBottom: 12, maxWidth: 300 }} placeholder="🔍 搜索手机号或昵称..." value={search} onChange={e => setSearch(e.target.value)} />
         <div style={{ background: C.card, borderRadius: 12, overflow: "auto", boxShadow: "0 2px 12px rgba(59,45,139,0.06)" }}>
@@ -1181,6 +1395,102 @@ const MemberMgmt = () => {
             <p style={{ fontSize: 13, color: C.textLight }}>此操作将同时删除该用户的所有预约、课程卡、交易记录、帖子和评论，且不可恢复。</p>
             <div style={{ display: "flex", gap: 10, marginTop: 12 }}><PBtn secondary onClick={() => setDeleteConfirm(null)}>取消</PBtn><PBtn danger onClick={doDeleteUser}>确认删除</PBtn></div>
         </Modal>
+
+        {/* 批量导入弹窗 */}
+        <Modal show={bulkOpen} onClose={closeBulk} title="📋 批量添加学员" wide>
+            {bulkResult ? (
+                // ===== 导入结果 =====
+                <div>
+                    <div style={{ background: C.success + "12", border: `1px solid ${C.success}40`, borderRadius: 10, padding: 14, marginBottom: 12 }}>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: C.success, marginBottom: 6 }}>✅ 导入完成</div>
+                        <div style={{ fontSize: 14, color: C.text, lineHeight: 1.8 }}>
+                            <div>成功添加：<b style={{ color: C.success }}>{bulkResult.added}</b> 人</div>
+                            <div>跳过（已存在）：<b style={{ color: C.warning }}>{bulkResult.skipped}</b> 人</div>
+                            <div>失败（格式错误）：<b style={{ color: C.danger }}>{bulkResult.failed}</b> 人</div>
+                        </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                        <PBtn secondary onClick={() => { setBulkResult(null); setBulkRows([]); setBulkText(""); setBulkFileName(""); }}>继续添加</PBtn>
+                        <PBtn onClick={closeBulk}>完成</PBtn>
+                    </div>
+                </div>
+            ) : (
+                // ===== 输入 + 预览 =====
+                <div>
+                    <div style={{ fontSize: 13, color: C.textLight, marginBottom: 10, lineHeight: 1.6 }}>
+                        支持两种导入方式：① 上传 <b>CSV / Excel</b>（两列：手机号、昵称）；② 在文本框粘贴，每行一条："手机号,昵称" 或 "手机号 昵称"
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10, marginBottom: 12, alignItems: "center" }}>
+                        <label style={{ display: "inline-block", cursor: "pointer" }}>
+                            <span style={{ ...st.btn, background: C.primary, color: "#fff", display: "inline-block" }}>📁 选择文件 (.csv / .xlsx)</span>
+                            <input type="file" accept=".csv,.xlsx,.xls" onChange={onBulkFile} style={{ display: "none" }} />
+                        </label>
+                        {bulkFileName && <span style={{ fontSize: 13, color: C.text }}>📄 {bulkFileName}（{bulkRows.length} 行）</span>}
+                    </div>
+
+                    <Field label={`或者粘贴文本（${bulkText ? bulkRows.length + " 行" : "每行一条"}）`}>
+                        <textarea
+                            style={{ ...st.input, minHeight: 110, fontFamily: "monospace", resize: "vertical" }}
+                            placeholder={"13800138000,张三\n13900139000 李四\n13700137000\t王五"}
+                            value={bulkText}
+                            onChange={e => onBulkText(e.target.value)}
+                        />
+                    </Field>
+
+                    {bulkRows.length > 0 && (
+                        <div style={{ marginTop: 8 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 6 }}>
+                                预览（共 {bulkRows.length} 行）：
+                                <span style={{ color: C.success, marginLeft: 8 }}>✓ 新增 {bulkRows.filter(r => r.status === "new").length}</span>
+                                <span style={{ color: C.warning, marginLeft: 8 }}>⊘ 跳过 {bulkRows.filter(r => r.status === "duplicate" || r.status === "duplicate-batch").length}</span>
+                                <span style={{ color: C.danger, marginLeft: 8 }}>✗ 错误 {bulkRows.filter(r => r.status === "invalid").length}</span>
+                            </div>
+                            <div style={{ maxHeight: 260, overflow: "auto", border: `1px solid ${C.primary}15`, borderRadius: 8 }}>
+                                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                                    <thead style={{ position: "sticky", top: 0, background: C.bg }}>
+                                        <tr>
+                                            <th style={st.th}>#</th>
+                                            <th style={st.th}>手机号</th>
+                                            <th style={st.th}>昵称</th>
+                                            <th style={st.th}>状态</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {bulkRows.map((r, i) => {
+                                            const color =
+                                                r.status === "new" ? C.success :
+                                                r.status === "invalid" ? C.danger :
+                                                C.warning;
+                                            const label =
+                                                r.status === "new" ? "✓ 新增" :
+                                                r.status === "invalid" ? "✗ 格式错误" :
+                                                r.status === "duplicate" ? "⊘ 已存在" :
+                                                "⊘ 同批重复";
+                                            return (
+                                                <tr key={i} style={{ background: r.status === "new" ? "transparent" : color + "08" }}>
+                                                    <td style={{ ...st.td, color: C.textLight }}>{i + 1}</td>
+                                                    <td style={{ ...st.td, fontFamily: "monospace" }}>{r.phone || <span style={{ color: C.textLight }}>—</span>}</td>
+                                                    <td style={st.td}>{r.nickname || <span style={{ color: C.textLight }}>—</span>}</td>
+                                                    <td style={st.td}><span style={{ color, fontWeight: 600 }}>{label}</span>{r.msg && r.status !== "new" && <span style={{ color: C.textLight, marginLeft: 6, fontSize: 12 }}>{r.msg}</span>}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    <div style={{ display: "flex", gap: 10, marginTop: 14, justifyContent: "flex-end" }}>
+                        <PBtn secondary onClick={closeBulk}>取消</PBtn>
+                        <PBtn onClick={doBulkImport} disabled={bulkImporting || bulkRows.filter(r => r.status === "new").length === 0}>
+                            {bulkImporting ? "导入中…" : `确认导入（${bulkRows.filter(r => r.status === "new").length} 人）`}
+                        </PBtn>
+                    </div>
+                </div>
+            )}
+        </Modal>
     </div>;
 };
 
@@ -1200,19 +1510,34 @@ const CommunityMgmt = () => {
 // ======= MAIN LAYOUT =======
 export default function Admin() {
     const [page, setPage] = useState("coach");
+    const [navOpen, setNavOpen] = useState(false); // 移动端 sidebar 抽屉开关
     const { bookings, loading, refetchAll } = useStore();
     const pc = bookings.filter(b => b.status === "待确认").length;
     if (loading) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: C.bg, fontFamily: "-apple-system,sans-serif" }}><Spinner /></div>;
-    return <div style={{ display: "flex", minHeight: "100vh", fontFamily: "-apple-system,'Segoe UI',sans-serif" }}>
-        <div style={{ width: 220, background: C.sidebar, color: "#fff", display: "flex", flexDirection: "column", flexShrink: 0 }}>
+
+    const currentLabel = NAV.find(n => n.id === page)?.label || "管理后台";
+    const handleNavClick = (id) => { setPage(id); setNavOpen(false); };
+
+    return <div className="admin-root" style={{ display: "flex", minHeight: "100vh", fontFamily: "-apple-system,'Segoe UI',sans-serif" }}>
+        {/* 移动端顶部 bar：汉堡 + 当前页标题 + 刷新；桌面端 CSS 隐藏 */}
+        <div className="admin-topbar">
+            <button className="admin-hamburger" onClick={() => setNavOpen(true)} aria-label="打开菜单">☰</button>
+            <span className="admin-topbar-title">{currentLabel}</span>
+            <button className="admin-topbar-refresh" onClick={refetchAll}>🔄 刷新</button>
+        </div>
+
+        {/* 移动端 sidebar 抽屉打开时的遮罩 */}
+        {navOpen && <div className="admin-sidebar-mask" onClick={() => setNavOpen(false)} />}
+
+        <div className={`admin-sidebar ${navOpen ? "admin-sidebar-open" : ""}`} style={{ width: 220, background: C.sidebar, color: "#fff", display: "flex", flexDirection: "column", flexShrink: 0 }}>
             <div style={{ padding: "24px 20px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}><div style={{ fontSize: 18, fontWeight: 800, letterSpacing: 1 }}>DC Pingpong</div><div style={{ fontSize: 12, opacity: 0.5, marginTop: 2 }}>管理后台</div></div>
-            <div style={{ flex: 1, padding: "12px 0" }}>{NAV.map(n => <div key={n.id} onClick={() => setPage(n.id)} style={{ padding: "12px 20px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, background: page === n.id ? "rgba(255,255,255,0.1)" : "transparent", borderLeft: page === n.id ? `3px solid ${C.secondary}` : "3px solid transparent", transition: "all .15s", fontSize: 14, fontWeight: page === n.id ? 600 : 400 }}><span>{n.icon}</span><span>{n.label}</span>{n.id === "booking" && pc > 0 && <span style={{ background: C.secondary, color: "#fff", fontSize: 11, fontWeight: 700, borderRadius: 10, padding: "1px 7px", marginLeft: "auto" }}>{pc}</span>}</div>)}</div>
+            <div style={{ flex: 1, padding: "12px 0" }}>{NAV.map(n => <div key={n.id} className="admin-nav-item" onClick={() => handleNavClick(n.id)} style={{ padding: "12px 20px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, background: page === n.id ? "rgba(255,255,255,0.1)" : "transparent", borderLeft: page === n.id ? `3px solid ${C.secondary}` : "3px solid transparent", transition: "all .15s", fontSize: 14, fontWeight: page === n.id ? 600 : 400 }}><span>{n.icon}</span><span>{n.label}</span>{n.id === "booking" && pc > 0 && <span style={{ background: C.secondary, color: "#fff", fontSize: 11, fontWeight: 700, borderRadius: 10, padding: "1px 7px", marginLeft: "auto" }}>{pc}</span>}</div>)}</div>
             <div style={{ padding: "12px 20px", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
                 <button onClick={refetchAll} style={{ width: "100%", padding: "8px", background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 6, color: "#fff", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>🔄 刷新数据</button>
             </div>
             <div style={{ padding: "8px 20px 16px", fontSize: 12, opacity: 0.4 }}>v3.1 · Supabase</div>
         </div>
-        <div style={{ flex: 1, background: C.bg, overflow: "auto" }}><div style={{ padding: "24px 32px", maxWidth: 1100 }}>
+        <div className="admin-main" style={{ flex: 1, background: C.bg, overflow: "auto" }}><div className="admin-content" style={{ padding: "24px 32px", maxWidth: 1100 }}>
             {page === "coach" && <CoachMgmt />}{page === "course" && <CourseMgmt />}{page === "activity" && <ActivityMgmt />}{page === "table" && <TableMgmt />}{page === "booking" && <BookingMgmt />}{page === "member" && <MemberMgmt />}{page === "community" && <CommunityMgmt />}
         </div></div>
     </div>;
